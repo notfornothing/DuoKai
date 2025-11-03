@@ -12,8 +12,31 @@ from ctypes import wintypes, windll
 import json
 import os
 import subprocess
+import sys
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
+
+def is_admin():
+    """检查是否以管理员身份运行"""
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+        return False
+
+def run_as_admin():
+    """以管理员身份重新运行程序"""
+    if is_admin():
+        return True
+    else:
+        try:
+            # 以管理员身份重新运行
+            ctypes.windll.shell32.ShellExecuteW(
+                None, "runas", sys.executable, " ".join(sys.argv), None, 1
+            )
+            return False
+        except:
+            messagebox.showerror("错误", "无法获取管理员权限")
+            return False
 
 # 现代化UI配色方案
 COLORS = {
@@ -87,7 +110,8 @@ class WindowManagerGUI:
         
         # 沙盒配置
         self.sandbox_config = SandboxConfig()
-        self.config_file = os.path.join("saving", "config.json")
+        self.sandbox_config_file = os.path.join("saving", "multiSandbox.json")
+        self.window_config_file = os.path.join("saving", "multiWindows.json")
         
         # GUI 组件
         self.window_listbox = None
@@ -600,10 +624,11 @@ class WindowManagerGUI:
                 }
             }
             
-            with open(self.config_file, 'w', encoding='utf-8') as f:
+            with open(self.sandbox_config_file, 'w', encoding='utf-8') as f:
                 json.dump(config_data, f, indent=2, ensure_ascii=False)
             
-            messagebox.showinfo("保存成功", "沙盒配置已保存!")
+            # 不显示弹窗，只在状态栏显示
+            self.show_status_message("沙盒配置已保存")
             
         except Exception as e:
             messagebox.showerror("保存失败", f"保存配置时出错: {str(e)}")
@@ -611,8 +636,8 @@ class WindowManagerGUI:
     def load_sandbox_config(self):
         """加载沙盒配置"""
         try:
-            if os.path.exists(self.config_file):
-                with open(self.config_file, 'r', encoding='utf-8') as f:
+            if os.path.exists(self.sandbox_config_file):
+                with open(self.sandbox_config_file, 'r', encoding='utf-8') as f:
                     config_data = json.load(f)
                 
                 if "sandbox" in config_data:
@@ -634,7 +659,6 @@ class WindowManagerGUI:
                     self.sandbox_config.program_exe = sandbox_config.get("program_exe", "")
                     self.sandbox_config.enabled_boxes = enabled_boxes
                     
-                    messagebox.showinfo("加载成功", "沙盒配置已加载!")
         except Exception as e:
             messagebox.showerror("加载失败", f"加载配置时出错: {str(e)}")
     
@@ -1079,10 +1103,7 @@ class WindowManagerGUI:
     def apply_layout(self):
         """应用布局"""
         if not self.grid_assignments:
-            messagebox.showinfo("提示", "没有分配任何窗口")
-            return
-        
-        if not messagebox.askyesno("确认", "是否应用当前布局设置?"):
+            self.show_status_message("没有分配任何窗口")
             return
         
         positions = self.calculate_positions()
@@ -1104,83 +1125,76 @@ class WindowManagerGUI:
             except Exception as e:
                 print(f"移动窗口失败 {window.title}: {e}")
         
-        messagebox.showinfo("完成", f"成功应用 {success_count}/{len(self.grid_assignments)} 个窗口的布局")
+        self.show_status_message(f"成功应用 {success_count}/{len(self.grid_assignments)} 个窗口的布局")
     
     def save_config(self):
         """保存配置"""
         if not self.grid_assignments:
-            messagebox.showinfo("提示", "没有配置可保存")
+            self.show_status_message("没有配置可保存")
             return
         
-        filename = filedialog.asksaveasfilename(
-            defaultextension=".json",
-            filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
-        )
+        config = {
+            'rows': self.rows.get(),
+            'columns': self.columns.get(),
+            'screen_width': self.screen_width.get(),
+            'screen_height': self.screen_height.get(),
+            'use_workarea': self.use_workarea.get(),
+            'assignments': {}
+        }
         
-        if filename:
-            config = {
-                'rows': self.rows.get(),
-                'columns': self.columns.get(),
-                'screen_width': self.screen_width.get(),
-                'screen_height': self.screen_height.get(),
-                'use_workarea': self.use_workarea.get(),
-                'assignments': {}
+        for (row, col), window in self.grid_assignments.items():
+            config['assignments'][f"{row},{col}"] = {
+                'title': window.title,
+                'class_name': window.class_name
             }
-            
-            for (row, col), window in self.grid_assignments.items():
-                config['assignments'][f"{row},{col}"] = {
-                    'title': window.title,
-                    'class_name': window.class_name
-                }
-            
-            try:
-                with open(filename, 'w', encoding='utf-8') as f:
-                    json.dump(config, f, ensure_ascii=False, indent=2)
-                messagebox.showinfo("成功", f"配置已保存到 {filename}")
-            except Exception as e:
-                messagebox.showerror("错误", f"保存失败: {e}")
+        
+        try:
+            os.makedirs("saving", exist_ok=True)
+            with open(self.window_config_file, 'w', encoding='utf-8') as f:
+                json.dump(config, f, ensure_ascii=False, indent=2)
+            self.show_status_message("窗口配置已保存")
+        except Exception as e:
+            messagebox.showerror("错误", f"保存失败: {e}")
     
     def load_config(self):
         """加载配置"""
-        filename = filedialog.askopenfilename(
-            filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
-        )
-        
-        if filename:
-            try:
-                with open(filename, 'r', encoding='utf-8') as f:
-                    config = json.load(f)
+        try:
+            if not os.path.exists(self.window_config_file):
+                self.show_status_message("配置文件不存在")
+                return
                 
-                # 加载设置
-                self.rows.set(config.get('rows', 2))
-                self.columns.set(config.get('columns', 3))
-                self.screen_width.set(config.get('screen_width', 2560))
-                self.screen_height.set(config.get('screen_height', 1440))
-                self.use_workarea.set(config.get('use_workarea', True))
+            with open(self.window_config_file, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            
+            # 加载设置
+            self.rows.set(config.get('rows', 2))
+            self.columns.set(config.get('columns', 3))
+            self.screen_width.set(config.get('screen_width', 2560))
+            self.screen_height.set(config.get('screen_height', 1440))
+            self.use_workarea.set(config.get('use_workarea', True))
+            
+            # 更新网格
+            self.update_grid()
+            
+            # 尝试匹配窗口
+            assignments = config.get('assignments', {})
+            matched_count = 0
+            
+            for pos_str, window_info in assignments.items():
+                row, col = map(int, pos_str.split(','))
+                title = window_info['title']
+                class_name = window_info['class_name']
                 
-                # 更新网格
-                self.update_grid()
-                
-                # 尝试匹配窗口
-                assignments = config.get('assignments', {})
-                matched_count = 0
-                
-                for pos_str, window_info in assignments.items():
-                    row, col = map(int, pos_str.split(','))
-                    title = window_info['title']
-                    class_name = window_info['class_name']
-                    
-                    # 查找匹配的窗口
-                    for window in self.windows:
-                        if (window.title == title or window.class_name == class_name) and window.assigned_position is None:
-                            self.assign_window_to_position(window, row, col)
-                            matched_count += 1
-                            break
-                
-                messagebox.showinfo("成功", f"配置已加载，匹配到 {matched_count}/{len(assignments)} 个窗口")
-                
-            except Exception as e:
-                messagebox.showerror("错误", f"加载失败: {e}")
+                # 查找匹配的窗口
+                for window in self.windows:
+                    if (window.title == title or window.class_name == class_name) and window.assigned_position is None:
+                        self.assign_window_to_position(window, row, col)
+                        matched_count += 1
+                        break
+            
+            self.show_status_message(f"配置已加载，匹配到 {matched_count} 个窗口")
+        except Exception as e:
+            messagebox.showerror("错误", f"加载失败: {e}")
     
     def run(self):
         """运行程序"""
@@ -1188,6 +1202,20 @@ class WindowManagerGUI:
 
 def main():
     """主函数"""
+    # 检查管理员权限
+    if not is_admin():
+        result = messagebox.askyesno(
+            "权限提示", 
+            "程序需要管理员权限才能正常管理窗口。\n\n是否以管理员身份重新运行？"
+        )
+        if result:
+            if not run_as_admin():
+                sys.exit(1)
+            else:
+                sys.exit(0)  # 当前进程退出，管理员进程接管
+        else:
+            messagebox.showwarning("警告", "没有管理员权限可能导致部分功能无法正常使用")
+    
     app = WindowManagerGUI()
     app.run()
 

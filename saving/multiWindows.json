@@ -1,0 +1,13 @@
+{
+  "rows": 2,
+  "columns": 3,
+  "screen_width": 2560,
+  "screen_height": 1440,
+  "use_workarea": true,
+  "assignments": {
+    "0,0": {
+      "title": "NextChat 和另外 1 个页面 - 个人 - Microsoft​ Edge",
+      "class_name": "Chrome_WidgetWin_1"
+    }
+  }
+}

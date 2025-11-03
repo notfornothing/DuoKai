@@ -11,7 +11,9 @@ import ctypes
 from ctypes import wintypes, windll
 import json
 import os
+import subprocess
 from typing import List, Dict, Tuple, Optional
+from dataclasses import dataclass
 
 # 现代化UI配色方案
 COLORS = {
@@ -46,12 +48,26 @@ class WindowInfo:
     def __str__(self):
         return f"{self.title} ({self.class_name})"
 
+@dataclass
+class SandboxConfig:
+    """沙盒配置数据类"""
+    sandbox_path: str = r"D:\Install\sandbox\Sandboxie-Plus\Start.exe"
+    program_path: str = r"C:\Install\menghuanDesk\menghuanxiyoushikong"
+    program_exe: str = "MyLauncher_x64r.exe"
+    box_prefix: str = "01"
+    box_count: int = 6
+    enabled_boxes: List[str] = None
+    
+    def __post_init__(self):
+        if self.enabled_boxes is None:
+            self.enabled_boxes = [f"{int(self.box_prefix):02d}", f"{int(self.box_prefix)+1:02d}"]
+
 class WindowManagerGUI:
     """可视化窗口管理器"""
     
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("🪟 窗口管理器 - 可视化设置")
+        self.root.title("🪟 窗口管理器 & 沙盒多开工具")
         self.root.geometry("1200x800")
         self.root.configure(bg=COLORS['bg_primary'])
         
@@ -69,6 +85,10 @@ class WindowManagerGUI:
         self.windows: List[WindowInfo] = []
         self.grid_assignments: Dict[Tuple[int, int], WindowInfo] = {}  # (row, col) -> WindowInfo
         
+        # 沙盒配置
+        self.sandbox_config = SandboxConfig()
+        self.config_file = os.path.join("saving", "config.json")
+        
         # GUI 组件
         self.window_listbox = None
         self.grid_frame = None
@@ -78,6 +98,10 @@ class WindowManagerGUI:
         self.drag_data = {"item": None, "source": None}
         
         self.setup_ui()
+        
+        # 加载配置
+        self.load_sandbox_config()
+        
         self.refresh_windows()
     
     def setup_styles(self):
@@ -123,13 +147,33 @@ class WindowManagerGUI:
         main_frame.pack(fill=tk.BOTH, expand=True)
         
         # 标题
-        title_label = tk.Label(main_frame, text="🪟 窗口管理器", 
+        title_label = tk.Label(main_frame, text="🪟 窗口管理器 & 沙盒多开工具", 
                               font=('Segoe UI', 16, 'bold'),
                               bg=COLORS['bg_secondary'], fg=COLORS['fg_primary'])
         title_label.pack(pady=(0, 15))
         
+        # 创建选项卡
+        self.notebook = ttk.Notebook(main_frame)
+        self.notebook.pack(fill=tk.BOTH, expand=True)
+        
+        # 窗口管理选项卡
+        self.window_tab = tk.Frame(self.notebook, bg=COLORS['bg_secondary'])
+        self.notebook.add(self.window_tab, text="🪟 窗口管理")
+        
+        # 沙盒多开选项卡
+        self.sandbox_tab = tk.Frame(self.notebook, bg=COLORS['bg_secondary'])
+        self.notebook.add(self.sandbox_tab, text="📦 沙盒多开")
+        
+        # 设置窗口管理界面
+        self.setup_window_management_ui()
+        
+        # 设置沙盒多开界面
+        self.setup_sandbox_ui()
+    
+    def setup_window_management_ui(self):
+        """设置窗口管理界面"""
         # 配置区域
-        config_frame = tk.LabelFrame(main_frame, text="⚙️ 配置设置", 
+        config_frame = tk.LabelFrame(self.window_tab, text="⚙️ 配置设置", 
                                     bg=COLORS['bg_secondary'], fg=COLORS['fg_primary'],
                                     font=('Segoe UI', 11, 'bold'), padx=10, pady=10)
         config_frame.pack(fill=tk.X, pady=(0, 15))
@@ -175,7 +219,7 @@ class WindowManagerGUI:
         workarea_check.pack(side=tk.LEFT)
         
         # 内容区域
-        content_frame = tk.Frame(main_frame, bg=COLORS['bg_secondary'])
+        content_frame = tk.Frame(self.window_tab, bg=COLORS['bg_secondary'])
         content_frame.pack(fill=tk.BOTH, expand=True)
         
         # 左侧：窗口列表
@@ -237,7 +281,7 @@ class WindowManagerGUI:
         self.grid_frame.pack(fill=tk.BOTH, expand=True)
         
         # 底部按钮区域
-        button_frame = tk.Frame(main_frame, bg=COLORS['bg_secondary'])
+        button_frame = tk.Frame(self.window_tab, bg=COLORS['bg_secondary'])
         button_frame.pack(pady=(15, 0))
         
         # 创建现代化按钮
@@ -261,13 +305,340 @@ class WindowManagerGUI:
                 padx=15,
                 pady=8
             )
-            btn.pack(side=tk.LEFT, padx=(0, 10) if i < len(buttons_config)-1 else 0)
-            
-            # 添加悬停效果
+            btn.pack(side=tk.LEFT, padx=5)
             self.add_hover_effect(btn, color)
         
+        # 初始化网格
         self.update_grid()
     
+    def setup_sandbox_ui(self):
+        """设置沙盒多开界面"""
+        # 配置区域
+        config_frame = tk.LabelFrame(self.sandbox_tab, text="⚙️ 沙盒配置", 
+                                    bg=COLORS['bg_secondary'], fg=COLORS['fg_primary'],
+                                    font=('Segoe UI', 11, 'bold'), padx=15, pady=15)
+        config_frame.pack(fill=tk.X, pady=(0, 15))
+        
+        # 沙盒路径设置
+        path_frame = tk.Frame(config_frame, bg=COLORS['bg_secondary'])
+        path_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        tk.Label(path_frame, text="沙盒程序路径:", bg=COLORS['bg_secondary'], 
+                fg=COLORS['fg_primary'], font=('Segoe UI', 10, 'bold')).pack(anchor=tk.W)
+        
+        sandbox_path_frame = tk.Frame(path_frame, bg=COLORS['bg_secondary'])
+        sandbox_path_frame.pack(fill=tk.X, pady=(5, 0))
+        
+        self.sandbox_path_var = tk.StringVar(value=self.sandbox_config.sandbox_path)
+        sandbox_path_entry = tk.Entry(sandbox_path_frame, textvariable=self.sandbox_path_var,
+                                     bg=COLORS['bg_accent'], fg=COLORS['fg_primary'], 
+                                     font=('Segoe UI', 10))
+        sandbox_path_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+        
+        browse_sandbox_btn = tk.Button(sandbox_path_frame, text="浏览...",
+                                      command=self.browse_sandbox_path,
+                                      bg=COLORS['accent_blue'], fg=COLORS['fg_primary'],
+                                      font=('Segoe UI', 9), borderwidth=0, padx=10)
+        browse_sandbox_btn.pack(side=tk.RIGHT)
+        
+        # 程序路径设置
+        program_frame = tk.Frame(config_frame, bg=COLORS['bg_secondary'])
+        program_frame.pack(fill=tk.X, pady=(10, 10))
+        
+        tk.Label(program_frame, text="目标程序目录:", bg=COLORS['bg_secondary'], 
+                fg=COLORS['fg_primary'], font=('Segoe UI', 10, 'bold')).pack(anchor=tk.W)
+        
+        program_path_frame = tk.Frame(program_frame, bg=COLORS['bg_secondary'])
+        program_path_frame.pack(fill=tk.X, pady=(5, 0))
+        
+        self.program_path_var = tk.StringVar(value=self.sandbox_config.program_path)
+        program_path_entry = tk.Entry(program_path_frame, textvariable=self.program_path_var,
+                                     bg=COLORS['bg_accent'], fg=COLORS['fg_primary'], 
+                                     font=('Segoe UI', 10))
+        program_path_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+        
+        browse_program_btn = tk.Button(program_path_frame, text="浏览...",
+                                      command=self.browse_program_path,
+                                      bg=COLORS['accent_blue'], fg=COLORS['fg_primary'],
+                                      font=('Segoe UI', 9), borderwidth=0, padx=10)
+        browse_program_btn.pack(side=tk.RIGHT)
+        
+        # 程序可执行文件
+        exe_frame = tk.Frame(config_frame, bg=COLORS['bg_secondary'])
+        exe_frame.pack(fill=tk.X, pady=(10, 10))
+        
+        tk.Label(exe_frame, text="可执行文件名:", bg=COLORS['bg_secondary'], 
+                fg=COLORS['fg_primary'], font=('Segoe UI', 10, 'bold')).pack(side=tk.LEFT, padx=(0, 10))
+        
+        self.program_exe_var = tk.StringVar(value=self.sandbox_config.program_exe)
+        exe_entry = tk.Entry(exe_frame, textvariable=self.program_exe_var, width=30,
+                            bg=COLORS['bg_accent'], fg=COLORS['fg_primary'], 
+                            font=('Segoe UI', 10))
+        exe_entry.pack(side=tk.LEFT)
+        
+        # Box配置区域
+        box_frame = tk.LabelFrame(self.sandbox_tab, text="📦 Box配置", 
+                                 bg=COLORS['bg_secondary'], fg=COLORS['fg_primary'],
+                                 font=('Segoe UI', 11, 'bold'), padx=15, pady=15)
+        box_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
+        
+        # Box选择区域
+        box_select_frame = tk.Frame(box_frame, bg=COLORS['bg_secondary'])
+        box_select_frame.pack(fill=tk.X, pady=(0, 15))
+        
+        tk.Label(box_select_frame, text="选择要启动的Box (01-06):", 
+                bg=COLORS['bg_secondary'], fg=COLORS['fg_primary'], 
+                font=('Segoe UI', 10, 'bold')).pack(anchor=tk.W, pady=(0, 10))
+        
+        # 创建Box复选框
+        self.box_vars = {}
+        box_checkboxes_frame = tk.Frame(box_select_frame, bg=COLORS['bg_secondary'])
+        box_checkboxes_frame.pack(fill=tk.X)
+        
+        for i in range(1, 7):
+            box_id = f"{i:02d}"
+            var = tk.BooleanVar(value=box_id in self.sandbox_config.enabled_boxes)
+            self.box_vars[box_id] = var
+            
+            checkbox = tk.Checkbutton(box_checkboxes_frame, text=f"Box {box_id}", 
+                                     variable=var, bg=COLORS['bg_secondary'],
+                                     fg=COLORS['fg_primary'], font=('Segoe UI', 10),
+                                     selectcolor=COLORS['bg_accent'])
+            checkbox.pack(side=tk.LEFT, padx=(0, 20))
+        
+        # 快速选择按钮
+        quick_select_frame = tk.Frame(box_frame, bg=COLORS['bg_secondary'])
+        quick_select_frame.pack(fill=tk.X, pady=(0, 15))
+        
+        tk.Label(quick_select_frame, text="快速选择:", bg=COLORS['bg_secondary'], 
+                fg=COLORS['fg_primary'], font=('Segoe UI', 10, 'bold')).pack(side=tk.LEFT, padx=(0, 10))
+        
+        select_all_btn = tk.Button(quick_select_frame, text="全选",
+                                  command=self.select_all_boxes,
+                                  bg=COLORS['accent_green'], fg=COLORS['fg_primary'],
+                                  font=('Segoe UI', 9), borderwidth=0, padx=10)
+        select_all_btn.pack(side=tk.LEFT, padx=(0, 5))
+        
+        select_none_btn = tk.Button(quick_select_frame, text="全不选",
+                                   command=self.select_no_boxes,
+                                   bg=COLORS['accent_red'], fg=COLORS['fg_primary'],
+                                   font=('Segoe UI', 9), borderwidth=0, padx=10)
+        select_none_btn.pack(side=tk.LEFT, padx=(0, 5))
+        
+        select_first_two_btn = tk.Button(quick_select_frame, text="选择前两个",
+                                        command=self.select_first_two_boxes,
+                                        bg=COLORS['accent_blue'], fg=COLORS['fg_primary'],
+                                        font=('Segoe UI', 9), borderwidth=0, padx=10)
+        select_first_two_btn.pack(side=tk.LEFT)
+        
+        # 启动按钮区域
+        launch_frame = tk.Frame(self.sandbox_tab, bg=COLORS['bg_secondary'])
+        launch_frame.pack(pady=(0, 15))
+        
+        launch_btn = tk.Button(launch_frame, text="🚀 启动选中的沙盒",
+                              command=self.launch_sandboxes,
+                              bg=COLORS['accent_green'], fg=COLORS['fg_primary'],
+                              font=('Segoe UI', 12, 'bold'), borderwidth=0,
+                              padx=30, pady=10)
+        launch_btn.pack(side=tk.LEFT, padx=(0, 15))
+        
+        save_sandbox_config_btn = tk.Button(launch_frame, text="💾 保存配置",
+                                           command=self.save_sandbox_config,
+                                           bg=COLORS['accent_orange'], fg=COLORS['fg_primary'],
+                                           font=('Segoe UI', 10, 'bold'), borderwidth=0,
+                                           padx=20, pady=10)
+        save_sandbox_config_btn.pack(side=tk.LEFT)
+        
+        # 状态显示区域
+        self.sandbox_status_frame = tk.LabelFrame(self.sandbox_tab, text="📊 启动状态", 
+                                                 bg=COLORS['bg_secondary'], fg=COLORS['fg_primary'],
+                                                 font=('Segoe UI', 11, 'bold'), padx=15, pady=15)
+        self.sandbox_status_frame.pack(fill=tk.BOTH, expand=True)
+        
+        self.sandbox_status_text = tk.Text(self.sandbox_status_frame, height=8,
+                                          bg=COLORS['bg_accent'], fg=COLORS['fg_primary'],
+                                          font=('Consolas', 9), borderwidth=0,
+                                          wrap=tk.WORD)
+        
+        status_scrollbar = tk.Scrollbar(self.sandbox_status_frame, orient=tk.VERTICAL)
+        status_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        self.sandbox_status_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.sandbox_status_text.config(yscrollcommand=status_scrollbar.set)
+        status_scrollbar.config(command=self.sandbox_status_text.yview)
+        
+        # 初始状态信息
+        self.sandbox_status_text.insert(tk.END, "准备启动沙盒...\n")
+        self.sandbox_status_text.insert(tk.END, f"当前配置:\n")
+        self.sandbox_status_text.insert(tk.END, f"  沙盒路径: {self.sandbox_config.sandbox_path}\n")
+        self.sandbox_status_text.insert(tk.END, f"  程序路径: {self.sandbox_config.program_path}\n")
+        self.sandbox_status_text.insert(tk.END, f"  可执行文件: {self.sandbox_config.program_exe}\n\n")
+    
+    # 沙盒相关方法
+    def browse_sandbox_path(self):
+        """浏览沙盒程序路径"""
+        filename = filedialog.askopenfilename(
+            title="选择沙盒程序",
+            filetypes=[("可执行文件", "*.exe"), ("所有文件", "*.*")]
+        )
+        if filename:
+            self.sandbox_path_var.set(filename)
+    
+    def browse_program_path(self):
+        """浏览目标程序目录"""
+        dirname = filedialog.askdirectory(title="选择目标程序目录")
+        if dirname:
+            self.program_path_var.set(dirname)
+    
+    def select_all_boxes(self):
+        """选择所有Box"""
+        for var in self.box_vars.values():
+            var.set(True)
+    
+    def select_no_boxes(self):
+        """取消选择所有Box"""
+        for var in self.box_vars.values():
+            var.set(False)
+    
+    def select_first_two_boxes(self):
+        """选择前两个Box"""
+        self.select_no_boxes()
+        for i, box_id in enumerate(sorted(self.box_vars.keys())):
+            if i < 2:
+                self.box_vars[box_id].set(True)
+    
+    def get_selected_boxes(self) -> List[str]:
+        """获取选中的Box列表"""
+        return [box_id for box_id, var in self.box_vars.items() if var.get()]
+    
+    def launch_sandboxes(self):
+        """启动选中的沙盒"""
+        selected_boxes = self.get_selected_boxes()
+        if not selected_boxes:
+            messagebox.showwarning("警告", "请至少选择一个Box!")
+            return
+        
+        # 更新配置
+        self.sandbox_config.sandbox_path = self.sandbox_path_var.get()
+        self.sandbox_config.program_path = self.program_path_var.get()
+        self.sandbox_config.program_exe = self.program_exe_var.get()
+        self.sandbox_config.enabled_boxes = selected_boxes
+        
+        # 清空状态显示
+        self.sandbox_status_text.delete(1.0, tk.END)
+        self.sandbox_status_text.insert(tk.END, f"开始启动 {len(selected_boxes)} 个沙盒...\n\n")
+        self.sandbox_status_text.update()
+        
+        success_count = 0
+        for box_id in selected_boxes:
+            try:
+                # 构建完整的程序路径
+                full_program_path = os.path.join(self.sandbox_config.program_path, 
+                                               self.sandbox_config.program_exe)
+                
+                # 构建启动命令
+                command = [
+                    self.sandbox_config.sandbox_path,
+                    f"/box:{box_id}",
+                    full_program_path
+                ]
+                
+                self.sandbox_status_text.insert(tk.END, f"启动 Box {box_id}...\n")
+                self.sandbox_status_text.insert(tk.END, f"命令: {' '.join(command)}\n")
+                self.sandbox_status_text.update()
+                
+                # 启动进程
+                process = subprocess.Popen(command, 
+                                         stdout=subprocess.PIPE, 
+                                         stderr=subprocess.PIPE,
+                                         creationflags=subprocess.CREATE_NO_WINDOW)
+                
+                # 等待一小段时间检查是否启动成功
+                import time
+                time.sleep(0.5)
+                
+                if process.poll() is None:  # 进程仍在运行
+                    self.sandbox_status_text.insert(tk.END, f"✅ Box {box_id} 启动成功!\n\n")
+                    success_count += 1
+                else:
+                    # 获取错误信息
+                    _, stderr = process.communicate()
+                    error_msg = stderr.decode('utf-8', errors='ignore') if stderr else "未知错误"
+                    self.sandbox_status_text.insert(tk.END, f"❌ Box {box_id} 启动失败: {error_msg}\n\n")
+                
+            except Exception as e:
+                self.sandbox_status_text.insert(tk.END, f"❌ Box {box_id} 启动异常: {str(e)}\n\n")
+            
+            self.sandbox_status_text.update()
+        
+        # 显示总结
+        self.sandbox_status_text.insert(tk.END, f"启动完成! 成功: {success_count}/{len(selected_boxes)}\n")
+        self.sandbox_status_text.see(tk.END)
+        
+        if success_count > 0:
+            messagebox.showinfo("启动完成", f"成功启动 {success_count} 个沙盒!")
+        else:
+            messagebox.showerror("启动失败", "没有成功启动任何沙盒，请检查配置!")
+    
+    def save_sandbox_config(self):
+        """保存沙盒配置"""
+        try:
+            # 更新配置
+            self.sandbox_config.sandbox_path = self.sandbox_path_var.get()
+            self.sandbox_config.program_path = self.program_path_var.get()
+            self.sandbox_config.program_exe = self.program_exe_var.get()
+            self.sandbox_config.enabled_boxes = self.get_selected_boxes()
+            
+            # 保存到文件
+            os.makedirs("saving", exist_ok=True)
+            config_data = {
+                "sandbox": {
+                    "sandbox_path": self.sandbox_config.sandbox_path,
+                    "program_path": self.sandbox_config.program_path,
+                    "program_exe": self.sandbox_config.program_exe,
+                    "enabled_boxes": self.sandbox_config.enabled_boxes
+                }
+            }
+            
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                json.dump(config_data, f, indent=2, ensure_ascii=False)
+            
+            messagebox.showinfo("保存成功", "沙盒配置已保存!")
+            
+        except Exception as e:
+            messagebox.showerror("保存失败", f"保存配置时出错: {str(e)}")
+    
+    def load_sandbox_config(self):
+        """加载沙盒配置"""
+        try:
+            if os.path.exists(self.config_file):
+                with open(self.config_file, 'r', encoding='utf-8') as f:
+                    config_data = json.load(f)
+                
+                if "sandbox" in config_data:
+                    sandbox_config = config_data["sandbox"]
+                    
+                    # 更新界面
+                    self.sandbox_path_var.set(sandbox_config.get("sandbox_path", ""))
+                    self.program_path_var.set(sandbox_config.get("program_path", ""))
+                    self.program_exe_var.set(sandbox_config.get("program_exe", ""))
+                    
+                    # 更新Box选择
+                    enabled_boxes = sandbox_config.get("enabled_boxes", [])
+                    for box_id, var in self.box_vars.items():
+                        var.set(box_id in enabled_boxes)
+                    
+                    # 更新配置对象
+                    self.sandbox_config.sandbox_path = sandbox_config.get("sandbox_path", "")
+                    self.sandbox_config.program_path = sandbox_config.get("program_path", "")
+                    self.sandbox_config.program_exe = sandbox_config.get("program_exe", "")
+                    self.sandbox_config.enabled_boxes = enabled_boxes
+                    
+                    messagebox.showinfo("加载成功", "沙盒配置已加载!")
+        except Exception as e:
+            messagebox.showerror("加载失败", f"加载配置时出错: {str(e)}")
+    
+    # 窗口管理相关方法
     def add_hover_effect(self, button, original_color):
         """为按钮添加悬停效果"""
         def on_enter(e):

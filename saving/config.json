@@ -1,0 +1,11 @@
+{
+  "sandbox": {
+    "sandbox_path": "D:\\Install\\sandbox\\Sandboxie-Plus\\Start.exe",
+    "program_path": "C:\\Install\\menghuanDesk\\menghuanxiyoushikong",
+    "program_exe": "MyLauncher_x64r.exe",
+    "enabled_boxes": [
+      "01",
+      "02"
+    ]
+  }
+}

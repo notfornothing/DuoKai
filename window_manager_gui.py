@@ -13,6 +13,22 @@ import json
 import os
 from typing import List, Dict, Tuple, Optional
 
+# 现代化UI配色方案
+COLORS = {
+    'bg_primary': '#2b2b2b',      # 主背景色
+    'bg_secondary': '#3c3c3c',    # 次要背景色
+    'bg_accent': '#404040',       # 强调背景色
+    'fg_primary': '#ffffff',      # 主文字色
+    'fg_secondary': '#cccccc',    # 次要文字色
+    'accent_blue': '#0078d4',     # 蓝色强调
+    'accent_green': '#107c10',    # 绿色强调
+    'accent_orange': '#ff8c00',   # 橙色强调
+    'accent_red': '#d13438',      # 红色强调
+    'border': '#555555',          # 边框色
+    'hover': '#4a4a4a',           # 悬停色
+    'selected': '#0078d4',        # 选中色
+}
+
 # Windows API 常量
 SW_RESTORE = 9
 GWL_EXSTYLE = -20
@@ -35,8 +51,12 @@ class WindowManagerGUI:
     
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("窗口管理器 - 可视化设置")
-        self.root.geometry("900x700")
+        self.root.title("🪟 窗口管理器 - 可视化设置")
+        self.root.geometry("1200x800")
+        self.root.configure(bg=COLORS['bg_primary'])
+        
+        # 设置现代化样式
+        self.setup_styles()
         
         # 配置变量
         self.rows = tk.IntVar(value=2)
@@ -54,84 +74,210 @@ class WindowManagerGUI:
         self.grid_frame = None
         self.grid_buttons = {}  # (row, col) -> Button
         
+        # 拖拽相关
+        self.drag_data = {"item": None, "source": None}
+        
         self.setup_ui()
         self.refresh_windows()
     
+    def setup_styles(self):
+        """设置现代化样式"""
+        style = ttk.Style()
+        
+        # 配置主题样式
+        style.configure('Modern.TFrame', background=COLORS['bg_secondary'])
+        style.configure('Modern.TLabel', 
+                       background=COLORS['bg_secondary'], 
+                       foreground=COLORS['fg_primary'],
+                       font=('Segoe UI', 10))
+        style.configure('Modern.TEntry',
+                       fieldbackground=COLORS['bg_accent'],
+                       borderwidth=1,
+                       insertcolor=COLORS['fg_primary'])
+        style.configure('Modern.TSpinbox',
+                       fieldbackground=COLORS['bg_accent'],
+                       borderwidth=1,
+                       arrowcolor=COLORS['fg_primary'])
+        style.configure('Modern.TCheckbutton',
+                       background=COLORS['bg_secondary'],
+                       foreground=COLORS['fg_primary'],
+                       focuscolor='none')
+        
+        # 简化LabelFrame样式，避免布局错误
+        style.configure('Modern.TLabelFrame',
+                       background=COLORS['bg_secondary'],
+                       borderwidth=1,
+                       relief='solid')
+        style.configure('Modern.TLabelFrame.Label',
+                       background=COLORS['bg_secondary'],
+                       foreground=COLORS['fg_primary'],
+                       font=('Segoe UI', 11, 'bold'))
+    
     def setup_ui(self):
         """设置用户界面"""
+        # 设置根窗口背景
+        self.root.configure(bg=COLORS['bg_secondary'])
+        
         # 主框架
-        main_frame = ttk.Frame(self.root, padding="10")
-        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        main_frame = tk.Frame(self.root, bg=COLORS['bg_secondary'], padx=15, pady=15)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # 标题
+        title_label = tk.Label(main_frame, text="🪟 窗口管理器", 
+                              font=('Segoe UI', 16, 'bold'),
+                              bg=COLORS['bg_secondary'], fg=COLORS['fg_primary'])
+        title_label.pack(pady=(0, 15))
         
         # 配置区域
-        config_frame = ttk.LabelFrame(main_frame, text="配置设置", padding="5")
-        config_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+        config_frame = tk.LabelFrame(main_frame, text="⚙️ 配置设置", 
+                                    bg=COLORS['bg_secondary'], fg=COLORS['fg_primary'],
+                                    font=('Segoe UI', 11, 'bold'), padx=10, pady=10)
+        config_frame.pack(fill=tk.X, pady=(0, 15))
         
         # 网格设置
-        ttk.Label(config_frame, text="行数:").grid(row=0, column=0, padx=(0, 5))
-        ttk.Spinbox(config_frame, from_=1, to=5, textvariable=self.rows, width=5,
-                   command=self.update_grid).grid(row=0, column=1, padx=(0, 10))
+        grid_config_frame = tk.Frame(config_frame, bg=COLORS['bg_secondary'])
+        grid_config_frame.pack(fill=tk.X)
         
-        ttk.Label(config_frame, text="列数:").grid(row=0, column=2, padx=(0, 5))
-        ttk.Spinbox(config_frame, from_=1, to=5, textvariable=self.columns, width=5,
-                   command=self.update_grid).grid(row=0, column=3, padx=(0, 10))
+        # 行数设置
+        tk.Label(grid_config_frame, text="行数:", bg=COLORS['bg_secondary'], 
+                fg=COLORS['fg_primary'], font=('Segoe UI', 10)).pack(side=tk.LEFT, padx=(0, 5))
+        rows_spinbox = tk.Spinbox(grid_config_frame, from_=1, to=5, textvariable=self.rows, 
+                                 width=5, command=self.update_grid, bg=COLORS['bg_accent'],
+                                 fg=COLORS['fg_primary'], font=('Segoe UI', 10))
+        rows_spinbox.pack(side=tk.LEFT, padx=(0, 15))
+        
+        # 列数设置
+        tk.Label(grid_config_frame, text="列数:", bg=COLORS['bg_secondary'], 
+                fg=COLORS['fg_primary'], font=('Segoe UI', 10)).pack(side=tk.LEFT, padx=(0, 5))
+        cols_spinbox = tk.Spinbox(grid_config_frame, from_=1, to=5, textvariable=self.columns, 
+                                 width=5, command=self.update_grid, bg=COLORS['bg_accent'],
+                                 fg=COLORS['fg_primary'], font=('Segoe UI', 10))
+        cols_spinbox.pack(side=tk.LEFT, padx=(0, 15))
         
         # 分辨率设置
-        ttk.Label(config_frame, text="宽度:").grid(row=0, column=4, padx=(0, 5))
-        ttk.Entry(config_frame, textvariable=self.screen_width, width=6).grid(row=0, column=5, padx=(0, 5))
+        tk.Label(grid_config_frame, text="宽度:", bg=COLORS['bg_secondary'], 
+                fg=COLORS['fg_primary'], font=('Segoe UI', 10)).pack(side=tk.LEFT, padx=(0, 5))
+        width_entry = tk.Entry(grid_config_frame, textvariable=self.screen_width, width=8,
+                              bg=COLORS['bg_accent'], fg=COLORS['fg_primary'], font=('Segoe UI', 10))
+        width_entry.pack(side=tk.LEFT, padx=(0, 10))
         
-        ttk.Label(config_frame, text="高度:").grid(row=0, column=6, padx=(0, 5))
-        ttk.Entry(config_frame, textvariable=self.screen_height, width=6).grid(row=0, column=7, padx=(0, 10))
+        tk.Label(grid_config_frame, text="高度:", bg=COLORS['bg_secondary'], 
+                fg=COLORS['fg_primary'], font=('Segoe UI', 10)).pack(side=tk.LEFT, padx=(0, 5))
+        height_entry = tk.Entry(grid_config_frame, textvariable=self.screen_height, width=8,
+                               bg=COLORS['bg_accent'], fg=COLORS['fg_primary'], font=('Segoe UI', 10))
+        height_entry.pack(side=tk.LEFT, padx=(0, 15))
         
-        ttk.Checkbutton(config_frame, text="使用工作区(避开任务栏)", 
-                       variable=self.use_workarea).grid(row=0, column=8)
+        # 工作区选项
+        workarea_check = tk.Checkbutton(grid_config_frame, text="使用工作区(避开任务栏)", 
+                                       variable=self.use_workarea, bg=COLORS['bg_secondary'],
+                                       fg=COLORS['fg_primary'], font=('Segoe UI', 10),
+                                       selectcolor=COLORS['bg_accent'])
+        workarea_check.pack(side=tk.LEFT)
+        
+        # 内容区域
+        content_frame = tk.Frame(main_frame, bg=COLORS['bg_secondary'])
+        content_frame.pack(fill=tk.BOTH, expand=True)
         
         # 左侧：窗口列表
-        left_frame = ttk.LabelFrame(main_frame, text="可用窗口", padding="5")
-        left_frame.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 5))
+        left_frame = tk.LabelFrame(content_frame, text="📋 可用窗口 (拖拽到右侧网格)", 
+                                  bg=COLORS['bg_secondary'], fg=COLORS['fg_primary'],
+                                  font=('Segoe UI', 11, 'bold'), padx=10, pady=10)
+        left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
         
-        # 窗口列表
-        list_frame = ttk.Frame(left_frame)
-        list_frame.pack(fill=tk.BOTH, expand=True)
+        # 窗口列表容器
+        list_container = tk.Frame(left_frame, bg=COLORS['bg_secondary'])
+        list_container.pack(fill=tk.BOTH, expand=True)
         
-        scrollbar = ttk.Scrollbar(list_frame)
+        # 自定义Listbox样式
+        self.window_listbox = tk.Listbox(
+            list_container, 
+            bg=COLORS['bg_accent'],
+            fg=COLORS['fg_primary'],
+            selectbackground=COLORS['selected'],
+            selectforeground=COLORS['fg_primary'],
+            borderwidth=0,
+            highlightthickness=0,
+            font=('Segoe UI', 10),
+            height=20
+        )
+        
+        scrollbar = tk.Scrollbar(list_container, orient=tk.VERTICAL, bg=COLORS['bg_accent'])
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
-        self.window_listbox = tk.Listbox(list_frame, yscrollcommand=scrollbar.set, height=15)
         self.window_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.window_listbox.config(yscrollcommand=scrollbar.set)
         scrollbar.config(command=self.window_listbox.yview)
         
-        # 绑定双击事件
+        # 绑定拖拽事件
+        self.window_listbox.bind('<Button-1>', self.on_listbox_click)
+        self.window_listbox.bind('<B1-Motion>', self.on_listbox_drag)
+        self.window_listbox.bind('<ButtonRelease-1>', self.on_listbox_release)
         self.window_listbox.bind('<Double-1>', self.on_window_double_click)
         
         # 刷新按钮
-        ttk.Button(left_frame, text="刷新窗口列表", command=self.refresh_windows).pack(pady=(5, 0))
+        refresh_btn = tk.Button(
+            left_frame, 
+            text="🔄 刷新窗口列表",
+            command=self.refresh_windows,
+            bg=COLORS['accent_green'],
+            fg=COLORS['fg_primary'],
+            font=('Segoe UI', 10, 'bold'),
+            borderwidth=0,
+            pady=8
+        )
+        refresh_btn.pack(pady=(10, 0), fill=tk.X)
         
         # 右侧：网格布局
-        right_frame = ttk.LabelFrame(main_frame, text="网格布局 (拖拽窗口到这里)", padding="5")
-        right_frame.grid(row=1, column=1, sticky=(tk.W, tk.E, tk.N, tk.S))
+        right_frame = tk.LabelFrame(content_frame, text="🎯 网格布局 (放置窗口)", 
+                                   bg=COLORS['bg_secondary'], fg=COLORS['fg_primary'],
+                                   font=('Segoe UI', 11, 'bold'), padx=10, pady=10)
+        right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
         
-        self.grid_frame = ttk.Frame(right_frame)
+        self.grid_frame = tk.Frame(right_frame, bg=COLORS['bg_secondary'])
         self.grid_frame.pack(fill=tk.BOTH, expand=True)
         
-        # 底部按钮
-        button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=2, column=0, columnspan=2, pady=(10, 0))
+        # 底部按钮区域
+        button_frame = tk.Frame(main_frame, bg=COLORS['bg_secondary'])
+        button_frame.pack(pady=(15, 0))
         
-        ttk.Button(button_frame, text="预览布局", command=self.preview_layout).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(button_frame, text="应用设置", command=self.apply_layout).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(button_frame, text="清空设置", command=self.clear_assignments).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(button_frame, text="保存配置", command=self.save_config).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(button_frame, text="加载配置", command=self.load_config).pack(side=tk.LEFT)
+        # 创建现代化按钮
+        buttons_config = [
+            ("👁️ 预览布局", self.preview_layout, COLORS['accent_blue']),
+            ("✅ 应用设置", self.apply_layout, COLORS['accent_green']),
+            ("🗑️ 清空设置", self.clear_assignments, COLORS['accent_red']),
+            ("💾 保存配置", self.save_config, COLORS['accent_orange']),
+            ("📂 加载配置", self.load_config, COLORS['accent_orange'])
+        ]
         
-        # 配置网格权重
-        self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(0, weight=1)
-        main_frame.columnconfigure(0, weight=1)
-        main_frame.columnconfigure(1, weight=2)
-        main_frame.rowconfigure(1, weight=1)
+        for i, (text, command, color) in enumerate(buttons_config):
+            btn = tk.Button(
+                button_frame,
+                text=text,
+                command=command,
+                bg=color,
+                fg=COLORS['fg_primary'],
+                font=('Segoe UI', 10, 'bold'),
+                borderwidth=0,
+                padx=15,
+                pady=8
+            )
+            btn.pack(side=tk.LEFT, padx=(0, 10) if i < len(buttons_config)-1 else 0)
+            
+            # 添加悬停效果
+            self.add_hover_effect(btn, color)
         
         self.update_grid()
+    
+    def add_hover_effect(self, button, original_color):
+        """为按钮添加悬停效果"""
+        def on_enter(e):
+            button.config(bg=COLORS['hover'])
+        
+        def on_leave(e):
+            button.config(bg=original_color)
+        
+        button.bind("<Enter>", on_enter)
+        button.bind("<Leave>", on_leave)
     
     def get_windows(self) -> List[WindowInfo]:
         """获取所有可见窗口"""
@@ -215,7 +361,11 @@ class WindowManagerGUI:
                     command=lambda row=r, col=c: self.on_grid_click(row, col)
                 )
                 btn.grid(row=r, column=c, padx=2, pady=2, sticky=(tk.W, tk.E, tk.N, tk.S))
+                btn.grid_position = (r, c)  # 添加位置属性用于拖拽
                 self.grid_buttons[(r, c)] = btn
+                
+                # 添加悬停效果
+                self.add_grid_hover_effect(btn)
                 
                 # 配置网格权重
                 self.grid_frame.columnconfigure(c, weight=1)
@@ -230,14 +380,125 @@ class WindowManagerGUI:
             if (r, c) in self.grid_assignments:
                 window = self.grid_assignments[(r, c)]
                 btn.config(
-                    text=f"位置 {r+1},{c+1}\n{window.title[:20]}",
-                    bg='lightblue'
+                    text=f"🪟 位置 {r+1},{c+1}\n{window.title[:15]}...",
+                    bg=COLORS['selected'],
+                    fg=COLORS['fg_primary'],
+                    font=('Segoe UI', 9, 'bold')
                 )
             else:
                 btn.config(
-                    text=f"位置 {r+1},{c+1}\n(空)",
-                    bg='lightgray'
+                    text=f"📍 位置 {r+1},{c+1}\n(空)",
+                    bg=COLORS['bg_accent'],
+                    fg=COLORS['fg_secondary'],
+                    font=('Segoe UI', 9)
                 )
+    
+    def add_grid_hover_effect(self, button):
+        """为网格按钮添加悬停效果"""
+        def on_enter(e):
+            current_bg = button.cget('bg')
+            if current_bg == COLORS['selected']:
+                button.config(bg=COLORS['hover'])
+            else:
+                button.config(bg=COLORS['accent_blue'], fg=COLORS['fg_primary'])
+        
+        def on_leave(e):
+            # 恢复原始颜色
+            pos = button.grid_position
+            if pos in self.grid_assignments:
+                button.config(bg=COLORS['selected'], fg=COLORS['fg_primary'])
+            else:
+                button.config(bg=COLORS['bg_accent'], fg=COLORS['fg_secondary'])
+        
+        button.bind("<Enter>", on_enter)
+        button.bind("<Leave>", on_leave)
+    
+    def on_listbox_click(self, event):
+        """处理列表框点击事件"""
+        index = self.window_listbox.nearest(event.y)
+        if index >= 0 and index < self.window_listbox.size():
+            self.window_listbox.selection_clear(0, tk.END)
+            self.window_listbox.selection_set(index)
+            self.drag_data['start_index'] = index
+            self.drag_data['dragging'] = False
+    
+    def on_listbox_drag(self, event):
+        """处理拖拽事件"""
+        if 'start_index' in self.drag_data:
+            self.drag_data['dragging'] = True
+            # 创建拖拽视觉反馈
+            if not hasattr(self, 'drag_label'):
+                self.drag_label = tk.Toplevel(self.root)
+                self.drag_label.wm_overrideredirect(True)
+                self.drag_label.configure(bg=COLORS['accent_blue'])
+                
+                # 获取被拖拽的窗口名称
+                index = self.drag_data['start_index']
+                if index < len(self.windows):
+                    window_title = self.windows[index].title[:30] + "..." if len(self.windows[index].title) > 30 else self.windows[index].title
+                    label = tk.Label(self.drag_label, text=f"📋 {window_title}", 
+                                   bg=COLORS['accent_blue'], fg=COLORS['fg_primary'],
+                                   font=('Segoe UI', 9, 'bold'), padx=10, pady=5)
+                    label.pack()
+            
+            # 更新拖拽标签位置
+            x = self.root.winfo_pointerx() + 10
+            y = self.root.winfo_pointery() + 10
+            self.drag_label.geometry(f"+{x}+{y}")
+    
+    def on_listbox_release(self, event):
+        """处理拖拽释放事件"""
+        if hasattr(self, 'drag_label'):
+            self.drag_label.destroy()
+            delattr(self, 'drag_label')
+        
+        if self.drag_data.get('dragging', False):
+            # 检查是否释放在网格上
+            widget = event.widget.winfo_containing(self.root.winfo_pointerx(), 
+                                                  self.root.winfo_pointery())
+            
+            # 查找网格按钮
+            target_button = None
+            while widget and widget != self.root:
+                if hasattr(widget, 'grid_position'):
+                    target_button = widget
+                    break
+                widget = widget.master
+            
+            if target_button and 'start_index' in self.drag_data:
+                # 执行拖拽分配
+                index = self.drag_data['start_index']
+                if index < len(self.windows):
+                    row, col = target_button.grid_position
+                    self.assign_window_to_position(self.windows[index], row, col)
+        
+        # 重置拖拽数据
+        self.drag_data = {}
+    
+    def show_status_message(self, message, duration=2000):
+        """显示状态消息"""
+        if hasattr(self, 'status_label'):
+            self.status_label.destroy()
+        
+        self.status_label = tk.Label(
+            self.root,
+            text=message,
+            bg=COLORS['accent_green'],
+            fg=COLORS['fg_primary'],
+            font=('Segoe UI', 10, 'bold'),
+            padx=15,
+            pady=8
+        )
+        
+        # 计算位置（屏幕中央下方）
+        self.root.update_idletasks()
+        x = self.root.winfo_x() + self.root.winfo_width() // 2 - 150
+        y = self.root.winfo_y() + self.root.winfo_height() - 100
+        
+        self.status_label.place(x=x-self.root.winfo_x(), y=y-self.root.winfo_y())
+        
+        # 自动隐藏
+        self.root.after(duration, lambda: self.status_label.destroy() if hasattr(self, 'status_label') else None)
     
     def on_window_double_click(self, event):
         """窗口列表双击事件"""
@@ -363,6 +624,9 @@ class WindowManagerGUI:
         # 更新显示
         self.update_grid_display()
         self.refresh_windows()
+        
+        # 显示成功提示
+        self.show_status_message(f"✅ 已将 '{window.title[:20]}...' 分配到位置 ({row+1}, {col+1})")
     
     def remove_window_assignment(self, window: WindowInfo):
         """移除窗口分配"""

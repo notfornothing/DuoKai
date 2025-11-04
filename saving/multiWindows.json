@@ -4,30 +4,20 @@
   "screen_width": 2560,
   "screen_height": 1440,
   "use_workarea": true,
+  "h_gap": -14,
+  "v_gap": -14,
   "assignments": {
     "0,0": {
       "title": "[#] [01] 梦幻西游：时空 [#]",
-      "class_name": "Sandbox:01:enCTE3dLsmCSYqUgJHG9x2"
+      "class_name": "Sandbox:01:lnRTExoismB8YdgFbbK0U"
     },
     "0,1": {
       "title": "[#] [02] 梦幻西游：时空 [#]",
-      "class_name": "Sandbox:02:xngTEqn4sm7IYMlY956gO5"
+      "class_name": "Sandbox:02:lnRTExoismB8YdgFbbK0U"
     },
     "0,2": {
       "title": "[#] [03] 梦幻西游：时空 [#]",
-      "class_name": "Sandbox:03:onoTExAPsmJ5YAbAr9"
-    },
-    "1,0": {
-      "title": "[#] [04] 梦幻西游：时空 [#]",
-      "class_name": "Sandbox:04:onoTExAPsmJ5YAbAr9"
-    },
-    "1,1": {
-      "title": "[#] [05] 梦幻西游：时空 [#]",
-      "class_name": "Sandbox:05:AnRTEY0ksmWsYUxnZiLWB"
-    },
-    "1,2": {
-      "title": "[#] [06] 梦幻西游：时空 [#]",
-      "class_name": "Sandbox:06:AnRTEY0ksmWsYUxnZiLWB"
+      "class_name": "Sandbox:03:8nZTEZB3smOuYRWrJAhwc8Mqe"
     }
   }
 }

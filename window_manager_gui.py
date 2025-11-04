@@ -103,6 +103,8 @@ class WindowManagerGUI:
         self.screen_width = tk.IntVar(value=2560)
         self.screen_height = tk.IntVar(value=1440)
         self.use_workarea = tk.BooleanVar(value=True)
+        self.h_gap = tk.IntVar(value=10)  # 左右间隙
+        self.v_gap = tk.IntVar(value=10)  # 上下间隙
         
         # 数据
         self.windows: List[WindowInfo] = []
@@ -234,6 +236,19 @@ class WindowManagerGUI:
         height_entry = tk.Entry(grid_config_frame, textvariable=self.screen_height, width=8,
                                bg=COLORS['bg_accent'], fg=COLORS['fg_primary'], font=('Segoe UI', 10))
         height_entry.pack(side=tk.LEFT, padx=(0, 15))
+
+        # 间隙设置
+        tk.Label(grid_config_frame, text="左右间隙:", bg=COLORS['bg_secondary'],
+                 fg=COLORS['fg_primary'], font=('Segoe UI', 10)).pack(side=tk.LEFT, padx=(0, 5))
+        hgap_spinbox = tk.Spinbox(grid_config_frame, from_=-50, to=200, textvariable=self.h_gap,
+                                  width=5, bg=COLORS['bg_accent'], fg=COLORS['fg_primary'], font=('Segoe UI', 10))
+        hgap_spinbox.pack(side=tk.LEFT, padx=(0, 15))
+
+        tk.Label(grid_config_frame, text="上下间隙:", bg=COLORS['bg_secondary'],
+                 fg=COLORS['fg_primary'], font=('Segoe UI', 10)).pack(side=tk.LEFT, padx=(0, 5))
+        vgap_spinbox = tk.Spinbox(grid_config_frame, from_=-50, to=200, textvariable=self.v_gap,
+                                  width=5, bg=COLORS['bg_accent'], fg=COLORS['fg_primary'], font=('Segoe UI', 10))
+        vgap_spinbox.pack(side=tk.LEFT, padx=(0, 15))
         
         # 工作区选项
         workarea_check = tk.Checkbutton(grid_config_frame, text="使用工作区(避开任务栏)", 
@@ -334,6 +349,33 @@ class WindowManagerGUI:
         
         # 初始化网格
         self.update_grid()
+
+        # 操作日志区域
+        self.window_status_frame = tk.LabelFrame(
+            self.window_tab,
+            text="📜 操作日志",
+            bg=COLORS['bg_secondary'],
+            fg=COLORS['fg_primary'],
+            font=('Segoe UI', 11, 'bold'),
+            padx=10,
+            pady=10
+        )
+        self.window_status_frame.pack(fill=tk.BOTH, expand=True, pady=(15, 0))
+
+        self.window_status_text = tk.Text(
+            self.window_status_frame,
+            height=8,
+            bg=COLORS['bg_accent'],
+            fg=COLORS['fg_primary'],
+            font=('Consolas', 9),
+            borderwidth=0,
+            wrap=tk.WORD
+        )
+        window_status_scrollbar = tk.Scrollbar(self.window_status_frame, orient=tk.VERTICAL)
+        window_status_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.window_status_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.window_status_text.config(yscrollcommand=window_status_scrollbar.set)
+        window_status_scrollbar.config(command=self.window_status_text.yview)
     
     def setup_sandbox_ui(self):
         """设置沙盒多开界面"""
@@ -459,20 +501,64 @@ class WindowManagerGUI:
         launch_frame = tk.Frame(self.sandbox_tab, bg=COLORS['bg_secondary'])
         launch_frame.pack(pady=(0, 15))
         
-        launch_btn = tk.Button(launch_frame, text="🚀 启动选中的沙盒",
-                              command=self.launch_sandboxes,
-                              bg=COLORS['accent_green'], fg=COLORS['fg_primary'],
-                              font=('Segoe UI', 12, 'bold'), borderwidth=0,
-                              padx=30, pady=10)
+        # 按钮顺序：启动选中的沙盒 -> 关闭所有沙盒 -> 保存配置 -> 加载配置
+
+        launch_btn = tk.Button(
+            launch_frame,
+            text="🚀 启动选中的沙盒",
+            command=self.launch_sandboxes,
+            bg=COLORS['accent_green'],
+            fg=COLORS['fg_primary'],
+            font=('Segoe UI', 12, 'bold'),
+            borderwidth=0,
+            padx=30,
+            pady=10
+        )
         launch_btn.pack(side=tk.LEFT, padx=(0, 15))
-        
-        save_sandbox_config_btn = tk.Button(launch_frame, text="💾 保存配置",
-                                           command=self.save_sandbox_config,
-                                           bg=COLORS['accent_orange'], fg=COLORS['fg_primary'],
-                                           font=('Segoe UI', 10, 'bold'), borderwidth=0,
-                                           padx=20, pady=10)
-        save_sandbox_config_btn.pack(side=tk.LEFT)
-        
+        self.add_hover_effect(launch_btn, COLORS['accent_green'])
+
+        terminate_all_btn = tk.Button(
+            launch_frame,
+            text="🛑 关闭所有沙盒",
+            command=self.terminate_all_sandboxes,
+            bg=COLORS['accent_red'],
+            fg=COLORS['fg_primary'],
+            font=('Segoe UI', 10, 'bold'),
+            borderwidth=0,
+            padx=20,
+            pady=10
+        )
+        terminate_all_btn.pack(side=tk.LEFT, padx=(0, 15))
+        self.add_hover_effect(terminate_all_btn, COLORS['accent_red'])
+
+        save_sandbox_config_btn = tk.Button(
+            launch_frame,
+            text="💾 保存配置",
+            command=self.save_sandbox_config,
+            bg=COLORS['accent_orange'],
+            fg=COLORS['fg_primary'],
+            font=('Segoe UI', 10, 'bold'),
+            borderwidth=0,
+            padx=20,
+            pady=10
+        )
+        save_sandbox_config_btn.pack(side=tk.LEFT, padx=(0, 15))
+        self.add_hover_effect(save_sandbox_config_btn, COLORS['accent_orange'])
+
+        load_sandbox_config_btn = tk.Button(
+            launch_frame,
+            text="📂 加载配置",
+            command=self.browse_and_load_sandbox_config,
+            bg=COLORS['accent_orange'],
+            fg=COLORS['fg_primary'],
+            font=('Segoe UI', 10, 'bold'),
+            borderwidth=0,
+            padx=20,
+            pady=10
+        )
+        load_sandbox_config_btn.pack(side=tk.LEFT, padx=(0, 0))
+        self.add_hover_effect(load_sandbox_config_btn, COLORS['accent_orange'])
+
         # 状态显示区域
         self.sandbox_status_frame = tk.LabelFrame(self.sandbox_tab, text="📊 启动状态", 
                                                  bg=COLORS['bg_secondary'], fg=COLORS['fg_primary'],
@@ -513,6 +599,24 @@ class WindowManagerGUI:
         dirname = filedialog.askdirectory(title="选择目标程序目录")
         if dirname:
             self.program_path_var.set(dirname)
+
+    def browse_and_load_sandbox_config(self):
+        """浏览并加载沙盒配置文件(JSON)，并记录加载路径"""
+        filename = filedialog.askopenfilename(
+            title="选择沙盒配置文件",
+            filetypes=[("JSON 配置", "*.json"), ("所有文件", "*.*")]
+        )
+        if not filename:
+            return
+        try:
+            self.sandbox_config_file = filename
+            self.load_sandbox_config()
+            if hasattr(self, 'sandbox_status_text') and self.sandbox_status_text:
+                self.sandbox_status_text.insert(tk.END, f"📂 已加载沙盒配置文件: {filename}\n")
+                self.sandbox_status_text.see(tk.END)
+            self.show_status_message("沙盒配置已加载")
+        except Exception as e:
+            messagebox.showerror("加载失败", f"加载沙盒配置时出错: {e}")
     
     def select_all_boxes(self):
         """选择所有Box"""
@@ -559,6 +663,10 @@ class WindowManagerGUI:
                 # 构建完整的程序路径
                 full_program_path = os.path.join(self.sandbox_config.program_path, 
                                                self.sandbox_config.program_exe)
+                # 基本存在性检查，避免误报“未知错误”
+                if not os.path.isfile(full_program_path):
+                    self.sandbox_status_text.insert(tk.END, f"❌ 可执行文件不存在: {full_program_path}\n\n")
+                    continue
                 
                 # 构建启动命令
                 command = [
@@ -571,23 +679,22 @@ class WindowManagerGUI:
                 self.sandbox_status_text.insert(tk.END, f"命令: {' '.join(command)}\n")
                 self.sandbox_status_text.update()
                 
-                # 启动进程
-                process = subprocess.Popen(command, 
-                                         stdout=subprocess.PIPE, 
-                                         stderr=subprocess.PIPE,
-                                         creationflags=subprocess.CREATE_NO_WINDOW)
-                
-                # 等待一小段时间检查是否启动成功
-                import time
-                time.sleep(0.5)
-                
-                if process.poll() is None:  # 进程仍在运行
+                # 启动并依据返回码判断（Start.exe 通常快速返回）
+                result = subprocess.run(
+                    command,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                )
+                rc = result.returncode
+                if rc == 0:
                     self.sandbox_status_text.insert(tk.END, f"✅ Box {box_id} 启动成功!\n\n")
                     success_count += 1
                 else:
-                    # 获取错误信息
-                    _, stderr = process.communicate()
-                    error_msg = stderr.decode('utf-8', errors='ignore') if stderr else "未知错误"
+                    # 更准确的错误信息：优先 stderr，其次 stdout，最后返回码
+                    stderr_msg = result.stderr.decode('utf-8', errors='ignore') if result.stderr else ""
+                    stdout_msg = result.stdout.decode('utf-8', errors='ignore') if result.stdout else ""
+                    error_msg = stderr_msg or stdout_msg or f"返回码 {rc}"
                     self.sandbox_status_text.insert(tk.END, f"❌ Box {box_id} 启动失败: {error_msg}\n\n")
                 
             except Exception as e:
@@ -600,9 +707,41 @@ class WindowManagerGUI:
         self.sandbox_status_text.see(tk.END)
         
         if success_count > 0:
-            messagebox.showinfo("启动完成", f"成功启动 {success_count} 个沙盒!")
+            self.show_status_message("成功启动 {success_count} 个沙盒!")
         else:
-            messagebox.showerror("启动失败", "没有成功启动任何沙盒，请检查配置!")
+            self.show_status_message("没有成功启动任何沙盒，请检查配置!")
+
+    def terminate_all_sandboxes(self):
+        """一键关闭所有沙盒窗口(通过 Sandboxie Start.exe /terminate_all)"""
+        try:
+            self.sandbox_config.sandbox_path = self.sandbox_path_var.get()
+            cmd = [self.sandbox_config.sandbox_path, "/terminate_all"]
+            if hasattr(self, 'sandbox_status_text') and self.sandbox_status_text:
+                self.sandbox_status_text.insert(tk.END, f"🛑 发送终止命令: {' '.join(cmd)}\n")
+                self.sandbox_status_text.see(tk.END)
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+            _, stderr = process.communicate(timeout=5)
+            if process.returncode == 0:
+                if hasattr(self, 'sandbox_status_text') and self.sandbox_status_text:
+                    self.sandbox_status_text.insert(tk.END, "✅ 已请求终止所有沙盒进程\n")
+                    self.sandbox_status_text.see(tk.END)
+                self.show_status_message("已请求关闭所有沙盒")
+            else:
+                err = stderr.decode('utf-8', errors='ignore') if stderr else f"错误码 {process.returncode}"
+                if hasattr(self, 'sandbox_status_text') and self.sandbox_status_text:
+                    self.sandbox_status_text.insert(tk.END, f"❌ 终止失败: {err}\n")
+                    self.sandbox_status_text.see(tk.END)
+                messagebox.showerror("终止失败", err)
+        except Exception as e:
+            if hasattr(self, 'sandbox_status_text') and self.sandbox_status_text:
+                self.sandbox_status_text.insert(tk.END, f"❌ 终止异常: {e}\n")
+                self.sandbox_status_text.see(tk.END)
+            messagebox.showerror("终止异常", str(e))
     
     def save_sandbox_config(self):
         """保存沙盒配置"""
@@ -658,7 +797,11 @@ class WindowManagerGUI:
                     self.sandbox_config.program_path = sandbox_config.get("program_path", "")
                     self.sandbox_config.program_exe = sandbox_config.get("program_exe", "")
                     self.sandbox_config.enabled_boxes = enabled_boxes
-                    
+
+                    if hasattr(self, 'sandbox_status_text') and self.sandbox_status_text:
+                        self.sandbox_status_text.insert(tk.END, f"📂 从文件加载沙盒配置: {self.sandbox_config_file}\n")
+                        self.sandbox_status_text.see(tk.END)
+            
         except Exception as e:
             messagebox.showerror("加载失败", f"加载配置时出错: {str(e)}")
     
@@ -1090,13 +1233,28 @@ class WindowManagerGUI:
         extra_h = screen_h % rows
         
         positions = {}
+        # 允许负值间隙用于抵消窗口边框/阴影造成的视觉缝隙
+        h_gap = int(self.h_gap.get())
+        v_gap = int(self.v_gap.get())
+        half_h = h_gap // 2
+        half_v = v_gap // 2
         for row in range(rows):
             for col in range(cols):
                 x = offset_x + col * cell_w + min(col, extra_w)
                 y = offset_y + row * cell_h + min(row, extra_h)
                 w = cell_w + (1 if col < extra_w else 0)
                 h = cell_h + (1 if row < extra_h else 0)
-                positions[(row, col)] = (x, y, w, h)
+                # 仅在相邻边缘应用间隙，避免影响外边界
+                left_off = half_h if col > 0 else 0
+                right_off = half_h if col < cols - 1 else 0
+                top_off = half_v if row > 0 else 0
+                bottom_off = half_v if row < rows - 1 else 0
+
+                adj_x = x + left_off
+                adj_y = y + top_off
+                adj_w = max(0, w - (left_off + right_off))
+                adj_h = max(0, h - (top_off + bottom_off))
+                positions[(row, col)] = (adj_x, adj_y, adj_w, adj_h)
         
         return positions
     
@@ -1139,6 +1297,8 @@ class WindowManagerGUI:
             'screen_width': self.screen_width.get(),
             'screen_height': self.screen_height.get(),
             'use_workarea': self.use_workarea.get(),
+            'h_gap': self.h_gap.get(),
+            'v_gap': self.v_gap.get(),
             'assignments': {}
         }
         
@@ -1155,7 +1315,7 @@ class WindowManagerGUI:
             self.show_status_message("窗口配置已保存")
         except Exception as e:
             messagebox.showerror("错误", f"保存失败: {e}")
-    
+
     def load_config(self):
         """加载配置"""
         try:
@@ -1163,6 +1323,11 @@ class WindowManagerGUI:
                 self.show_status_message("配置文件不存在")
                 return
                 
+            # 记录加载路径日志
+            if hasattr(self, 'window_status_text') and self.window_status_text:
+                self.window_status_text.insert(tk.END, f"📂 加载窗口配置文件: {self.window_config_file}\n")
+                self.window_status_text.see(tk.END)
+
             with open(self.window_config_file, 'r', encoding='utf-8') as f:
                 config = json.load(f)
             
@@ -1172,6 +1337,8 @@ class WindowManagerGUI:
             self.screen_width.set(config.get('screen_width', 2560))
             self.screen_height.set(config.get('screen_height', 1440))
             self.use_workarea.set(config.get('use_workarea', True))
+            self.h_gap.set(config.get('h_gap', 10))
+            self.v_gap.set(config.get('v_gap', 10))
             
             # 更新网格
             self.update_grid()
@@ -1193,6 +1360,9 @@ class WindowManagerGUI:
                         break
             
             self.show_status_message(f"配置已加载，匹配到 {matched_count} 个窗口")
+            if hasattr(self, 'window_status_text') and self.window_status_text:
+                self.window_status_text.insert(tk.END, f"✅ 配置已加载，匹配到 {matched_count} 个窗口\n")
+                self.window_status_text.see(tk.END)
         except Exception as e:
             messagebox.showerror("错误", f"加载失败: {e}")
     

@@ -5,7 +5,11 @@
     "program_exe": "MyLauncher_x64r.exe",
     "enabled_boxes": [
       "01",
-      "02"
+      "02",
+      "03",
+      "04",
+      "05",
+      "06"
     ]
   }
 }

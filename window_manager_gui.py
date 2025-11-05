@@ -15,6 +15,7 @@ import subprocess
 import sys
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
+import uuid
 
 def is_admin():
     """检查是否以管理员身份运行"""
@@ -59,6 +60,81 @@ SW_RESTORE = 9
 GWL_EXSTYLE = -20
 WS_EX_TOOLWINDOW = 0x00000080
 HWND_TOP = 0
+
+# --- Virtual Desktop (Windows 10) COM 定义 ---
+class GUID(ctypes.Structure):
+    _fields_ = [
+        ("Data1", ctypes.c_ulong),
+        ("Data2", ctypes.c_ushort),
+        ("Data3", ctypes.c_ushort),
+        ("Data4", ctypes.c_ubyte * 8),
+    ]
+
+def _guid_from_string(s: str) -> GUID:
+    u = uuid.UUID(s)
+    data = u.bytes_le
+    g = GUID()
+    g.Data1 = int.from_bytes(data[0:4], "little")
+    g.Data2 = int.from_bytes(data[4:6], "little")
+    g.Data3 = int.from_bytes(data[6:8], "little")
+    g.Data4 = (ctypes.c_ubyte * 8).from_buffer_copy(data[8:16])
+    return g
+
+CLSID_VIRTUAL_DESKTOP_MANAGER = _guid_from_string("{AA509086-5CA9-4C25-8F95-589D3C07B48A}")
+IID_IVIRTUAL_DESKTOP_MANAGER   = _guid_from_string("{A5CD92FF-29BE-454C-8D04-D82879FB3F1B}")
+
+CLSCTX_INPROC_SERVER = 0x1
+COINIT_APARTMENTTHREADED = 0x2
+
+class VirtualDesktopManagerWrapper:
+    """使用 ctypes 直接调用 IVirtualDesktopManager 接口"""
+    def __init__(self):
+        ole32 = ctypes.windll.ole32
+        # 初始化 COM（APARTMENT 模式）
+        ole32.CoInitializeEx(None, COINIT_APARTMENTTHREADED)
+
+        # 创建对象实例
+        self._obj = ctypes.c_void_p()
+        hr = ole32.CoCreateInstance(
+            ctypes.byref(CLSID_VIRTUAL_DESKTOP_MANAGER),
+            None,
+            CLSCTX_INPROC_SERVER,
+            ctypes.byref(IID_IVIRTUAL_DESKTOP_MANAGER),
+            ctypes.byref(self._obj)
+        )
+        if hr != 0 or not self._obj.value:
+            raise OSError(f"CoCreateInstance 失败, HRESULT=0x{(hr & 0xFFFFFFFF):08X}")
+
+        # 取 vtable 指针
+        vtbl_ptr = ctypes.cast(self._obj, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents
+
+        # IUnknown 有 3 个函数在前面，接口方法从索引 3 开始
+        IsOnProto = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, wintypes.HWND, ctypes.POINTER(wintypes.BOOL))
+        GetIdProto = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, wintypes.HWND, ctypes.POINTER(GUID))
+        MoveProto  = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, wintypes.HWND, ctypes.POINTER(GUID))
+
+        self._IsWindowOnCurrentVirtualDesktop = IsOnProto(vtbl_ptr[3])
+        self._GetWindowDesktopId = GetIdProto(vtbl_ptr[4])
+        self._MoveWindowToDesktop = MoveProto(vtbl_ptr[5])
+
+    def IsWindowOnCurrentVirtualDesktop(self, hwnd: int) -> bool:
+        flag = wintypes.BOOL()
+        hr = self._IsWindowOnCurrentVirtualDesktop(self._obj.value, hwnd, ctypes.byref(flag))
+        if hr != 0:
+            raise OSError(f"IsWindowOnCurrentVirtualDesktop 失败, HRESULT=0x{(hr & 0xFFFFFFFF):08X}")
+        return bool(flag.value)
+
+    def GetWindowDesktopId(self, hwnd: int) -> GUID:
+        gid = GUID()
+        hr = self._GetWindowDesktopId(self._obj.value, hwnd, ctypes.byref(gid))
+        if hr != 0:
+            raise OSError(f"GetWindowDesktopId 失败, HRESULT=0x{(hr & 0xFFFFFFFF):08X}")
+        return gid
+
+    def MoveWindowToDesktop(self, hwnd: int, desktop_guid: GUID) -> None:
+        hr = self._MoveWindowToDesktop(self._obj.value, hwnd, ctypes.byref(desktop_guid))
+        if hr != 0:
+            raise OSError(f"MoveWindowToDesktop 失败, HRESULT=0x{(hr & 0xFFFFFFFF):08X}")
 
 class WindowInfo:
     """窗口信息类"""
@@ -326,6 +402,7 @@ class WindowManagerGUI:
         # 创建现代化按钮
         buttons_config = [
             ("👁️ 预览布局", self.preview_layout, COLORS['accent_blue']),
+            ("🖥️ 移动到当前桌面", self.move_assigned_to_current_desktop, COLORS['accent_blue']),
             ("✅ 应用设置", self.apply_layout, COLORS['accent_green']),
             ("🗑️ 清空设置", self.clear_assignments, COLORS['accent_red']),
             ("💾 保存配置", self.save_config, COLORS['accent_orange']),
@@ -816,6 +893,82 @@ class WindowManagerGUI:
         
         button.bind("<Enter>", on_enter)
         button.bind("<Leave>", on_leave)
+
+    # -------------------- 虚拟桌面相关功能 --------------------
+    def _ensure_vdm(self) -> Optional[VirtualDesktopManagerWrapper]:
+        """懒加载 VirtualDesktopManager 包装器"""
+        if getattr(self, "_vdm", None) is not None:
+            return self._vdm
+        try:
+            self._vdm = VirtualDesktopManagerWrapper()
+            return self._vdm
+        except Exception as e:
+            print(f"初始化虚拟桌面管理器失败: {e}")
+            self._vdm = None
+            return None
+
+    def _get_current_desktop_guid(self, vdm: VirtualDesktopManagerWrapper) -> GUID:
+        """获取当前虚拟桌面的 GUID（带回退策略）"""
+        # 尝试：使用本程序主窗口
+        try:
+            root_hwnd = self.root.winfo_id()
+            return vdm.GetWindowDesktopId(root_hwnd)
+        except Exception:
+            pass
+
+        # 回退：使用前台活动窗口（尽量不是本进程）
+        try:
+            fg_hwnd = windll.user32.GetForegroundWindow()
+            # 如果前台窗口是本程序，尝试枚举其它窗口
+            pid = wintypes.DWORD()
+            windll.user32.GetWindowThreadProcessId(fg_hwnd, ctypes.byref(pid))
+            if pid.value == os.getpid():
+                # 枚举窗口，选择第一个在当前桌面的普通窗口
+                for win in self.get_windows():
+                    try:
+                        if vdm.IsWindowOnCurrentVirtualDesktop(win.hwnd):
+                            return vdm.GetWindowDesktopId(win.hwnd)
+                    except Exception:
+                        continue
+                # 如果都不行，仍尝试前台窗口
+            return vdm.GetWindowDesktopId(fg_hwnd)
+        except Exception as e:
+            raise OSError(f"无法获取当前桌面 GUID: {e}")
+
+    def move_assigned_to_current_desktop(self):
+        """将已分配的窗口移动到当前虚拟桌面"""
+        if not self.grid_assignments:
+            self.show_status_message("没有分配任何窗口")
+            return
+
+        vdm = self._ensure_vdm()
+        if vdm is None:
+            messagebox.showerror("虚拟桌面", "无法初始化虚拟桌面管理器。请确认系统为 Windows 10，且资源管理器正常运行。")
+            return
+
+        try:
+            # 获取当前桌面 GUID（含回退）
+            current_desktop_guid = self._get_current_desktop_guid(vdm)
+        except Exception as e:
+            messagebox.showerror("虚拟桌面", f"获取当前桌面 ID 失败: {e}")
+            return
+
+        success = 0
+        failed = []
+        for (row, col), window in self.grid_assignments.items():
+            try:
+                vdm.MoveWindowToDesktop(window.hwnd, current_desktop_guid)
+                success += 1
+            except Exception as e:
+                failed.append(f"{window.title} -> {e}")
+
+        if failed:
+            self.show_status_message(f"已移动 {success}/{len(self.grid_assignments)} 个窗口到当前桌面，部分失败")
+            print("移动失败详情:")
+            for line in failed:
+                print("- ", line)
+        else:
+            self.show_status_message(f"已移动 {success}/{len(self.grid_assignments)} 个窗口到当前桌面")
     
     def get_windows(self) -> List[WindowInfo]:
         """获取所有可见窗口"""

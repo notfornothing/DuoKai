@@ -204,6 +204,8 @@ class WindowManagerGUI:
         
         # 拖拽相关
         self.drag_data = {"item": None, "source": None}
+        # 配置加载重入保护标记，避免循环调用导致递归
+        self._is_loading_config = False
         
         self.setup_ui()
         
@@ -227,7 +229,9 @@ class WindowManagerGUI:
         for (r, c), w in assignments.items():
             if w:
                 w.assigned_position = (r, c)
-        self.refresh_windows()
+        # 若正在加载配置，则避免触发刷新以免造成循环
+        if not getattr(self, "_is_loading_config", False):
+            self.refresh_windows()
 
     def render_group_chips(self):
         # 创建或刷新分组按钮行
@@ -906,6 +910,32 @@ class WindowManagerGUI:
     def get_selected_boxes(self) -> List[str]:
         """获取选中的Box列表"""
         return [box_id for box_id, var in self.box_vars.items() if var.get()]
+
+    def is_box_running(self, box_id: str) -> int:
+        """检测指定 Box 是否有进程在运行，返回进程数量；返回 -1 表示无法检测"""
+        try:
+            start_path = self.sandbox_path_var.get() or self.sandbox_config.sandbox_path
+            cmd = [start_path, f"/box:{box_id}", "/listpids"]
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+            stdout, stderr = process.communicate(timeout=5)
+            if process.returncode != 0:
+                return -1
+            text = stdout.decode('utf-8', errors='ignore').strip()
+            lines = [l.strip() for l in text.splitlines() if l.strip()]
+            if not lines:
+                return 0
+            try:
+                count = int(lines[0])
+            except Exception:
+                count = max(0, len(lines) - 1)
+            return count
+        except Exception:
+            return -1
     
     def launch_sandboxes(self):
         """启动选中的沙盒"""
@@ -928,6 +958,21 @@ class WindowManagerGUI:
         success_count = 0
         for box_id in selected_boxes:
             try:
+                # 启动前检测是否已有进程在该 Box 运行
+                running_count = self.is_box_running(box_id)
+                if running_count > 0:
+                    proceed = messagebox.askyesno(
+                        "确认启动",
+                        f"Box {box_id} 当前已有 {running_count} 个进程在运行。\n是否仍要启动？"
+                    )
+                    if not proceed:
+                        self.sandbox_status_text.insert(tk.END, f"⏭️ 已跳过 Box {box_id}（检测到正在运行）\n\n")
+                        self.sandbox_status_text.update()
+                        continue
+                elif running_count == -1:
+                    # 无法检测时仅记录，不阻断
+                    self.sandbox_status_text.insert(tk.END, f"ℹ️ 未能检测 Box {box_id} 的运行状态，继续尝试启动\n")
+                    self.sandbox_status_text.update()
                 # 构建完整的程序路径
                 full_program_path = os.path.join(self.sandbox_config.program_path, 
                                                self.sandbox_config.program_exe)
@@ -1193,8 +1238,17 @@ class WindowManagerGUI:
         return windows
     
     def refresh_windows(self):
-        """刷新窗口列表"""
+        """刷新窗口列表（自动识别并加载配置）"""
+        # 枚举当前桌面窗口
         self.windows = self.get_windows()
+
+        # 自动加载配置以匹配当前窗口（若存在配置文件）
+        if not getattr(self, "_is_loading_config", False):
+            try:
+                self.load_config()
+            except Exception:
+                # 加载失败不影响刷新列表
+                pass
         
         # 更新列表框
         self.window_listbox.delete(0, tk.END)
@@ -1695,6 +1749,8 @@ class WindowManagerGUI:
 
     def load_config(self):
         """加载配置"""
+        # 进入加载阶段，设置重入保护
+        self._is_loading_config = True
         try:
             if not os.path.exists(self.window_config_file):
                 self.show_status_message("配置文件不存在")
@@ -1762,6 +1818,9 @@ class WindowManagerGUI:
                 self.window_status_text.see(tk.END)
         except Exception as e:
             messagebox.showerror("错误", f"加载失败: {e}")
+        finally:
+            # 退出加载阶段，解除重入保护
+            self._is_loading_config = False
     
     def run(self):
         """运行程序"""

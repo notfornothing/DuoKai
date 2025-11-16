@@ -1372,7 +1372,7 @@ class WindowManagerGUI:
         def on_leave(e):
             # 恢复原始颜色
             pos = button.grid_position
-            if pos in self.grid_assignments:
+            if pos in self.get_current_assignments():
                 button.config(bg=COLORS['selected'], fg=COLORS['fg_primary'])
             else:
                 button.config(bg=COLORS['bg_accent'], fg=COLORS['fg_secondary'])

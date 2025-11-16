@@ -241,11 +241,12 @@ class WindowManagerGUI:
             btn = tk.Button(
                 self.group_chips_frame,
                 text=key,
-                relief=tk.FLAT,
-                bg=COLORS['bg_accent'],
+                relief=tk.RIDGE,
+                borderwidth=1,
+                bg=COLORS['hover'],
                 fg=COLORS['fg_primary'],
                 font=('Segoe UI', 10, 'bold'),
-                padx=8, pady=4,
+                padx=12, pady=6,
                 command=lambda k=key: (self.layout_group_var.set(k), self.on_layout_group_change())
             )
             btn.pack(side=tk.LEFT, padx=(0, 8))
@@ -258,7 +259,7 @@ class WindowManagerGUI:
             if key == current:
                 btn.config(bg=COLORS['accent_blue'])
             else:
-                btn.config(bg=COLORS['bg_accent'])
+                btn.config(bg=COLORS['hover'])
     
     def setup_styles(self):
         """设置现代化样式"""
@@ -418,8 +419,10 @@ class WindowManagerGUI:
         # 组按钮行（选中高亮）
         group_chips_container = tk.Frame(self.window_tab, bg=COLORS['bg_secondary'])
         group_chips_container.pack(fill=tk.X, pady=(6, 6))
+        tk.Label(group_chips_container, text="布局组快捷:", bg=COLORS['bg_secondary'],
+                 fg=COLORS['fg_primary'], font=('Segoe UI', 10, 'bold')).pack(side=tk.LEFT, padx=(0, 10))
         self.group_chips_frame = tk.Frame(group_chips_container, bg=COLORS['bg_secondary'])
-        self.group_chips_frame.pack(anchor=tk.W)
+        self.group_chips_frame.pack(side=tk.LEFT)
         self.render_group_chips()
         
         # 工作区选项
@@ -1009,40 +1012,62 @@ class WindowManagerGUI:
             messagebox.showerror("终止异常", str(e))
 
     def terminate_selected_sandboxes(self):
-        """仅关闭当前勾选的沙盒(逐个 /terminate /box:XX)"""
+        """仅关闭当前勾选的沙盒：优先使用 Start.exe /box:XX /terminate，兼容 SandboxieCtrl.exe"""
         boxes = self.get_selected_boxes()
         if not boxes:
             messagebox.showinfo("提示", "请先在上方勾选要关闭的 Box")
             return
-        self.sandbox_config.sandbox_path = self.sandbox_path_var.get()
+
+        start_path = self.sandbox_path_var.get()
+        start_dir = os.path.dirname(start_path) if start_path else ''
+        ctrl_path = os.path.join(start_dir, "SandboxieCtrl.exe") if start_dir else ''
+
         success = 0
         for box_id in boxes:
-            cmd = [self.sandbox_config.sandbox_path, "/terminate", f"/box:{box_id}"]
-            if hasattr(self, 'sandbox_status_text') and self.sandbox_status_text:
-                self.sandbox_status_text.insert(tk.END, f"🔹 终止选中 Box {box_id}: {' '.join(cmd)}\n")
-                self.sandbox_status_text.see(tk.END)
-            try:
-                proc = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    creationflags=subprocess.CREATE_NO_WINDOW
-                )
-                _, stderr = proc.communicate(timeout=5)
-                if proc.returncode == 0:
-                    success += 1
-                    if hasattr(self, 'sandbox_status_text') and self.sandbox_status_text:
-                        self.sandbox_status_text.insert(tk.END, f"✅ Box {box_id} 终止请求已发送\n")
-                        self.sandbox_status_text.see(tk.END)
-                else:
-                    err = stderr.decode('utf-8', errors='ignore') if stderr else f"错误码 {proc.returncode}"
-                    if hasattr(self, 'sandbox_status_text') and self.sandbox_status_text:
-                        self.sandbox_status_text.insert(tk.END, f"❌ Box {box_id} 终止失败: {err}\n")
-                        self.sandbox_status_text.see(tk.END)
-            except Exception as e:
+            # 优先尝试 Start.exe /box:XX /terminate（与启动命令风格一致）
+            tried_cmds = []
+            cmd1 = [start_path, f"/box:{box_id}", "/terminate"]
+            tried_cmds.append(cmd1)
+            # 备用：SandboxieCtrl.exe /terminate /box:XX（如果存在）
+            if ctrl_path and os.path.isfile(ctrl_path):
+                cmd2 = [ctrl_path, "/terminate", f"/box:{box_id}"]
+                tried_cmds.append(cmd2)
+
+            done = False
+            for cmd in tried_cmds:
                 if hasattr(self, 'sandbox_status_text') and self.sandbox_status_text:
-                    self.sandbox_status_text.insert(tk.END, f"❌ Box {box_id} 终止异常: {e}\n")
+                    self.sandbox_status_text.insert(tk.END, f"🔹 终止选中 Box {box_id}: {' '.join(cmd)}\n")
                     self.sandbox_status_text.see(tk.END)
+                try:
+                    proc = subprocess.Popen(
+                        cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        creationflags=subprocess.CREATE_NO_WINDOW
+                    )
+                    _, stderr = proc.communicate(timeout=8)
+                    if proc.returncode == 0:
+                        success += 1
+                        done = True
+                        if hasattr(self, 'sandbox_status_text') and self.sandbox_status_text:
+                            self.sandbox_status_text.insert(tk.END, f"✅ Box {box_id} 终止请求已发送\n")
+                            self.sandbox_status_text.see(tk.END)
+                        break
+                    else:
+                        err = stderr.decode('utf-8', errors='ignore') if stderr else f"错误码 {proc.returncode}"
+                        if hasattr(self, 'sandbox_status_text') and self.sandbox_status_text:
+                            self.sandbox_status_text.insert(tk.END, f"❌ Box {box_id} 终止失败: {err}\n")
+                            self.sandbox_status_text.see(tk.END)
+                except Exception as e:
+                    if hasattr(self, 'sandbox_status_text') and self.sandbox_status_text:
+                        self.sandbox_status_text.insert(tk.END, f"❌ Box {box_id} 终止异常: {e}\n")
+                        self.sandbox_status_text.see(tk.END)
+            if not done:
+                # 如果两种方式均失败，提示可能的原因
+                if hasattr(self, 'sandbox_status_text') and self.sandbox_status_text:
+                    self.sandbox_status_text.insert(tk.END, f"ℹ️ 建议检查 Start.exe/SandboxieCtrl.exe 路径或权限，以及 Box 名称是否正确\n")
+                    self.sandbox_status_text.see(tk.END)
+
         self.show_status_message(f"已请求关闭 {success}/{len(boxes)} 个选中沙盒")
     
     def save_sandbox_config(self):

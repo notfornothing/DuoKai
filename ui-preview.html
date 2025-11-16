@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>界面更新预览</title>
+  <style>
+    body { background:#2b2b2b; color:#fff; font-family:Segoe UI, Arial, sans-serif; margin:20px; }
+    .section { margin-bottom:24px; }
+    .title { font-size:18px; font-weight:bold; margin-bottom:8px; }
+    .chips { display:flex; gap:8px; padding:8px 0; }
+    .chip { background:#404040; border:none; color:#fff; padding:6px 10px; border-radius:6px; font-weight:bold; }
+    .chip.selected { background:#0078d4; }
+    .row { display:flex; align-items:center; gap:10px; }
+    .btn { background:#107c10; color:#fff; padding:8px 14px; border-radius:6px; border:none; }
+    .btn.secondary { background:#0078d4; }
+    .btn.danger { background:#d13438; }
+    code { background:#404040; padding:2px 6px; border-radius:4px; }
+  </style>
+  </head>
+<body>
+  <div class="section">
+    <div class="title">布局组选择</div>
+    <div class="row">
+      <span>下拉框：01-06 | 07-12 | 13-18 | 19-24</span>
+    </div>
+    <div class="chips">
+      <button class="chip selected">01-06</button>
+      <button class="chip">07-12</button>
+      <button class="chip">13-18</button>
+      <button class="chip">19-24</button>
+    </div>
+    <div>选中组高亮显示，点击即切换当前布局组。</div>
+  </div>
+
+  <div class="section">
+    <div class="title">沙盒操作</div>
+    <div class="row" style="gap:15px;">
+      <button class="btn">🚀 启动选中的沙盒</button>
+      <button class="btn danger">🛑 关闭所有沙盒</button>
+      <button class="btn secondary">🔹 关闭选中沙盒</button>
+      <button class="btn secondary">💾 保存配置</button>
+      <button class="btn secondary">📂 加载配置</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="title">程序路径与可执行文件</div>
+    <div class="row">
+      <span>目标程序目录：</span>
+      <code>C:\Install\menghuanDesk\menghuanxiyoushikong</code>
+      <span>可执行文件名：</span>
+      <code>MyLauncher_x64r.exe</code>
+      <button class="btn secondary">浏览...</button>
+    </div>
+    <div style="margin-top:6px; color:#ccc">将“可执行文件名”并到目录这一行，减少一行占用。</div>
+  </div>
+
+  <div class="section">
+    <div class="title">窗口管理前台布局</div>
+    <div>新增按钮 <code>📤 前台布局</code>：应用布局后，将该组的窗口按“最新打开”的方式提升到普通最前（非置顶），最后一个获得焦点。</div>
+  </div>
+
+  <div class="section" style="color:#ccc;">此页面为结构预览，实际外观以 Tk 界面为准。</div>
+</body>
+</html>

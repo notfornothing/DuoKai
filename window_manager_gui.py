@@ -200,6 +200,7 @@ class WindowManagerGUI:
         self.window_listbox = None
         self.grid_frame = None
         self.grid_buttons = {}  # (row, col) -> Button
+        self.group_chip_buttons = {}  # group_key -> Button
         
         # 拖拽相关
         self.drag_data = {"item": None, "source": None}
@@ -217,6 +218,8 @@ class WindowManagerGUI:
     def on_layout_group_change(self, *_):
         # 切换当前布局组时，更新网格显示与窗口分配标记
         self.update_grid_display()
+        # 更新分组按钮高亮
+        self.update_group_chip_highlight()
         # 同步列表中分配状态
         assignments = self.get_current_assignments()
         for w in self.windows:
@@ -225,6 +228,37 @@ class WindowManagerGUI:
             if w:
                 w.assigned_position = (r, c)
         self.refresh_windows()
+
+    def render_group_chips(self):
+        # 创建或刷新分组按钮行
+        for btn in self.group_chip_buttons.values():
+            try:
+                btn.destroy()
+            except Exception:
+                pass
+        self.group_chip_buttons.clear()
+        for key in self.layout_groups:
+            btn = tk.Button(
+                self.group_chips_frame,
+                text=key,
+                relief=tk.FLAT,
+                bg=COLORS['bg_accent'],
+                fg=COLORS['fg_primary'],
+                font=('Segoe UI', 10, 'bold'),
+                padx=8, pady=4,
+                command=lambda k=key: (self.layout_group_var.set(k), self.on_layout_group_change())
+            )
+            btn.pack(side=tk.LEFT, padx=(0, 8))
+            self.group_chip_buttons[key] = btn
+        self.update_group_chip_highlight()
+
+    def update_group_chip_highlight(self):
+        current = self.layout_group_var.get()
+        for key, btn in self.group_chip_buttons.items():
+            if key == current:
+                btn.config(bg=COLORS['accent_blue'])
+            else:
+                btn.config(bg=COLORS['bg_accent'])
     
     def setup_styles(self):
         """设置现代化样式"""
@@ -380,6 +414,13 @@ class WindowManagerGUI:
         group_menu = tk.OptionMenu(grid_config_frame, self.layout_group_var, *self.layout_groups, command=self.on_layout_group_change)
         group_menu.config(bg=COLORS['bg_accent'], fg=COLORS['fg_primary'], highlightthickness=0)
         group_menu.pack(side=tk.LEFT)
+
+        # 组按钮行（选中高亮）
+        group_chips_container = tk.Frame(self.window_tab, bg=COLORS['bg_secondary'])
+        group_chips_container.pack(fill=tk.X, pady=(6, 6))
+        self.group_chips_frame = tk.Frame(group_chips_container, bg=COLORS['bg_secondary'])
+        self.group_chips_frame.pack(anchor=tk.W)
+        self.render_group_chips()
         
         # 工作区选项
         workarea_check = tk.Checkbutton(grid_config_frame, text="使用工作区(避开任务栏)", 
@@ -458,6 +499,7 @@ class WindowManagerGUI:
         buttons_config = [
             ("👁️ 预览布局", self.preview_layout, COLORS['accent_blue']),
             ("✅ 应用设置", self.apply_layout, COLORS['accent_green']),
+            ("📤 前台布局", self.apply_layout_front, COLORS['accent_blue']),
             ("🗑️ 清空设置", self.clear_assignments, COLORS['accent_red']),
             ("💾 保存配置", self.save_config, COLORS['accent_orange']),
             ("📂 加载配置", self.load_config, COLORS['accent_orange'])
@@ -554,24 +596,20 @@ class WindowManagerGUI:
                                      font=('Segoe UI', 10))
         program_path_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
         
+        # 将“可执行文件名”并到同一行，放在目录后面
+        tk.Label(program_path_frame, text="可执行文件名:", bg=COLORS['bg_secondary'], 
+                fg=COLORS['fg_primary'], font=('Segoe UI', 10, 'bold')).pack(side=tk.LEFT, padx=(0, 10))
+        self.program_exe_var = tk.StringVar(value=self.sandbox_config.program_exe)
+        exe_entry = tk.Entry(program_path_frame, textvariable=self.program_exe_var, width=22,
+                            bg=COLORS['bg_accent'], fg=COLORS['fg_primary'], 
+                            font=('Segoe UI', 10))
+        exe_entry.pack(side=tk.LEFT, padx=(0, 10))
+
         browse_program_btn = tk.Button(program_path_frame, text="浏览...",
                                       command=self.browse_program_path,
                                       bg=COLORS['accent_blue'], fg=COLORS['fg_primary'],
                                       font=('Segoe UI', 9), borderwidth=0, padx=10)
         browse_program_btn.pack(side=tk.RIGHT)
-        
-        # 程序可执行文件
-        exe_frame = tk.Frame(config_frame, bg=COLORS['bg_secondary'])
-        exe_frame.pack(fill=tk.X, pady=(10, 10))
-        
-        tk.Label(exe_frame, text="可执行文件名:", bg=COLORS['bg_secondary'], 
-                fg=COLORS['fg_primary'], font=('Segoe UI', 10, 'bold')).pack(side=tk.LEFT, padx=(0, 10))
-        
-        self.program_exe_var = tk.StringVar(value=self.sandbox_config.program_exe)
-        exe_entry = tk.Entry(exe_frame, textvariable=self.program_exe_var, width=30,
-                            bg=COLORS['bg_accent'], fg=COLORS['fg_primary'], 
-                            font=('Segoe UI', 10))
-        exe_entry.pack(side=tk.LEFT)
         
         # Box配置区域
         box_frame = tk.LabelFrame(self.sandbox_tab, text="📦 Box配置", 
@@ -743,6 +781,20 @@ class WindowManagerGUI:
         )
         terminate_all_btn.pack(side=tk.LEFT, padx=(0, 15))
         self.add_hover_effect(terminate_all_btn, COLORS['accent_red'])
+
+        terminate_selected_btn = tk.Button(
+            launch_frame,
+            text="🔹 关闭选中沙盒",
+            command=self.terminate_selected_sandboxes,
+            bg=COLORS['accent_blue'],
+            fg=COLORS['fg_primary'],
+            font=('Segoe UI', 10, 'bold'),
+            borderwidth=0,
+            padx=20,
+            pady=10
+        )
+        terminate_selected_btn.pack(side=tk.LEFT, padx=(0, 15))
+        self.add_hover_effect(terminate_selected_btn, COLORS['accent_blue'])
 
         save_sandbox_config_btn = tk.Button(
             launch_frame,
@@ -955,6 +1007,43 @@ class WindowManagerGUI:
                 self.sandbox_status_text.insert(tk.END, f"❌ 终止异常: {e}\n")
                 self.sandbox_status_text.see(tk.END)
             messagebox.showerror("终止异常", str(e))
+
+    def terminate_selected_sandboxes(self):
+        """仅关闭当前勾选的沙盒(逐个 /terminate /box:XX)"""
+        boxes = self.get_selected_boxes()
+        if not boxes:
+            messagebox.showinfo("提示", "请先在上方勾选要关闭的 Box")
+            return
+        self.sandbox_config.sandbox_path = self.sandbox_path_var.get()
+        success = 0
+        for box_id in boxes:
+            cmd = [self.sandbox_config.sandbox_path, "/terminate", f"/box:{box_id}"]
+            if hasattr(self, 'sandbox_status_text') and self.sandbox_status_text:
+                self.sandbox_status_text.insert(tk.END, f"🔹 终止选中 Box {box_id}: {' '.join(cmd)}\n")
+                self.sandbox_status_text.see(tk.END)
+            try:
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                )
+                _, stderr = proc.communicate(timeout=5)
+                if proc.returncode == 0:
+                    success += 1
+                    if hasattr(self, 'sandbox_status_text') and self.sandbox_status_text:
+                        self.sandbox_status_text.insert(tk.END, f"✅ Box {box_id} 终止请求已发送\n")
+                        self.sandbox_status_text.see(tk.END)
+                else:
+                    err = stderr.decode('utf-8', errors='ignore') if stderr else f"错误码 {proc.returncode}"
+                    if hasattr(self, 'sandbox_status_text') and self.sandbox_status_text:
+                        self.sandbox_status_text.insert(tk.END, f"❌ Box {box_id} 终止失败: {err}\n")
+                        self.sandbox_status_text.see(tk.END)
+            except Exception as e:
+                if hasattr(self, 'sandbox_status_text') and self.sandbox_status_text:
+                    self.sandbox_status_text.insert(tk.END, f"❌ Box {box_id} 终止异常: {e}\n")
+                    self.sandbox_status_text.see(tk.END)
+        self.show_status_message(f"已请求关闭 {success}/{len(boxes)} 个选中沙盒")
     
     def save_sandbox_config(self):
         """保存沙盒配置"""
@@ -1504,6 +1593,34 @@ class WindowManagerGUI:
                 print(f"移动窗口失败 {window.title}: {e}")
         
         self.show_status_message(f"成功应用 {success_count}/{len(self.get_current_assignments())} 个窗口的布局")
+
+    def apply_layout_front(self):
+        """应用布局并以“前台”方式排列：提升到普通最前（非置顶）"""
+        if not self.get_current_assignments():
+            self.show_status_message("没有分配任何窗口")
+            return
+
+        positions = self.calculate_positions()
+        ordered = []
+        for (row, col), window in self.get_current_assignments().items():
+            x, y, w, h = positions[(row, col)]
+            try:
+                # 恢复并移动到目标位置
+                windll.user32.ShowWindow(window.hwnd, SW_RESTORE)
+                windll.user32.SetWindowPos(window.hwnd, HWND_TOP, x, y, w, h, 0x0040)  # SWP_SHOWWINDOW
+                ordered.append(window)
+            except Exception as e:
+                print(f"前台布局移动失败 {window.title}: {e}")
+
+        # 调整Z序到最前（非置顶），按顺序推到前面，最后一个获得焦点
+        for window in ordered:
+            windll.user32.SetWindowPos(window.hwnd, HWND_TOP, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040)  # NOSIZE|NOMOVE|SHOW
+        if ordered:
+            try:
+                windll.user32.SetForegroundWindow(ordered[-1].hwnd)
+            except Exception:
+                pass
+        self.show_status_message(f"前台布局完成: {len(ordered)}/{len(self.get_current_assignments())}")
     
     def save_config(self):
         """保存配置"""

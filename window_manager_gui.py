@@ -181,10 +181,15 @@ class WindowManagerGUI:
         self.use_workarea = tk.BooleanVar(value=True)
         self.h_gap = tk.IntVar(value=10)  # 左右间隙
         self.v_gap = tk.IntVar(value=10)  # 上下间隙
-        
+
         # 数据
         self.windows: List[WindowInfo] = []
-        self.grid_assignments: Dict[Tuple[int, int], WindowInfo] = {}  # (row, col) -> WindowInfo
+        # 布局组（联动沙盒分组）：01-06、07-12、13-18、19-24
+        self.layout_groups = ["01-06", "07-12", "13-18", "19-24"]
+        self.layout_group_var = tk.StringVar(value=self.layout_groups[0])
+        self.group_assignments: Dict[str, Dict[Tuple[int, int], WindowInfo]] = {
+            g: {} for g in self.layout_groups
+        }
         
         # 沙盒配置
         self.sandbox_config = SandboxConfig()
@@ -204,6 +209,21 @@ class WindowManagerGUI:
         # 加载配置
         self.load_sandbox_config()
         
+        self.refresh_windows()
+
+    def get_current_assignments(self) -> Dict[Tuple[int, int], WindowInfo]:
+        return self.group_assignments[self.layout_group_var.get()]
+
+    def on_layout_group_change(self, *_):
+        # 切换当前布局组时，更新网格显示与窗口分配标记
+        self.update_grid_display()
+        # 同步列表中分配状态
+        assignments = self.get_current_assignments()
+        for w in self.windows:
+            w.assigned_position = None
+        for (r, c), w in assignments.items():
+            if w:
+                w.assigned_position = (r, c)
         self.refresh_windows()
     
     def setup_styles(self):
@@ -248,29 +268,57 @@ class WindowManagerGUI:
         main_frame = tk.Frame(self.root, bg=COLORS['bg_secondary'], padx=15, pady=15)
         main_frame.pack(fill=tk.BOTH, expand=True)
         
-        # 标题
-        title_label = tk.Label(main_frame, text="🪟 窗口管理器 & 沙盒多开工具", 
-                              font=('Segoe UI', 16, 'bold'),
-                              bg=COLORS['bg_secondary'], fg=COLORS['fg_primary'])
-        title_label.pack(pady=(0, 15))
-        
-        # 创建选项卡
-        self.notebook = ttk.Notebook(main_frame)
-        self.notebook.pack(fill=tk.BOTH, expand=True)
-        
-        # 窗口管理选项卡
-        self.window_tab = tk.Frame(self.notebook, bg=COLORS['bg_secondary'])
-        self.notebook.add(self.window_tab, text="🪟 窗口管理")
-        
-        # 沙盒多开选项卡
-        self.sandbox_tab = tk.Frame(self.notebook, bg=COLORS['bg_secondary'])
-        self.notebook.add(self.sandbox_tab, text="📦 沙盒多开")
+        # 顶部切换（替换选项卡）：两个按钮在同一页显示
+        toggle_frame = tk.Frame(main_frame, bg=COLORS['bg_secondary'])
+        toggle_frame.pack(fill=tk.X, pady=(0, 10))
+
+        self.window_tab = tk.Frame(main_frame, bg=COLORS['bg_secondary'])
+        self.sandbox_tab = tk.Frame(main_frame, bg=COLORS['bg_secondary'])
+
+        def show_window_tab():
+            self.sandbox_tab.pack_forget()
+            self.window_tab.pack(fill=tk.BOTH, expand=True)
+
+        def show_sandbox_tab():
+            self.window_tab.pack_forget()
+            self.sandbox_tab.pack(fill=tk.BOTH, expand=True)
+
+        btn_window = tk.Button(
+            toggle_frame,
+            text="窗口管理",
+            command=show_window_tab,
+            bg=COLORS['accent_blue'],
+            fg=COLORS['fg_primary'],
+            font=('Segoe UI', 10, 'bold'),
+            borderwidth=0,
+            padx=12,
+            pady=6
+        )
+        btn_window.pack(side=tk.LEFT, padx=(0, 8))
+        self.add_hover_effect(btn_window, COLORS['accent_blue'])
+
+        btn_sandbox = tk.Button(
+            toggle_frame,
+            text="沙盒多开",
+            command=show_sandbox_tab,
+            bg=COLORS['accent_orange'],
+            fg=COLORS['fg_primary'],
+            font=('Segoe UI', 10, 'bold'),
+            borderwidth=0,
+            padx=12,
+            pady=6
+        )
+        btn_sandbox.pack(side=tk.LEFT)
+        self.add_hover_effect(btn_sandbox, COLORS['accent_orange'])
         
         # 设置窗口管理界面
         self.setup_window_management_ui()
-        
+
         # 设置沙盒多开界面
         self.setup_sandbox_ui()
+
+        # 默认显示窗口管理
+        show_window_tab()
     
     def setup_window_management_ui(self):
         """设置窗口管理界面"""
@@ -325,6 +373,13 @@ class WindowManagerGUI:
         vgap_spinbox = tk.Spinbox(grid_config_frame, from_=-50, to=200, textvariable=self.v_gap,
                                   width=5, bg=COLORS['bg_accent'], fg=COLORS['fg_primary'], font=('Segoe UI', 10))
         vgap_spinbox.pack(side=tk.LEFT, padx=(0, 15))
+
+        # 布局组选择（联动沙盒分组）
+        tk.Label(grid_config_frame, text="布局组:", bg=COLORS['bg_secondary'],
+                 fg=COLORS['fg_primary'], font=('Segoe UI', 10)).pack(side=tk.LEFT, padx=(10, 5))
+        group_menu = tk.OptionMenu(grid_config_frame, self.layout_group_var, *self.layout_groups, command=self.on_layout_group_change)
+        group_menu.config(bg=COLORS['bg_accent'], fg=COLORS['fg_primary'], highlightthickness=0)
+        group_menu.pack(side=tk.LEFT)
         
         # 工作区选项
         workarea_check = tk.Checkbutton(grid_config_frame, text="使用工作区(避开任务栏)", 
@@ -580,6 +635,10 @@ class WindowManagerGUI:
                 elif mode == 'first5':
                     for idx, bid in enumerate(ids):
                         self.box_vars[bid].set(idx < 5)
+                # 联动：切换窗口布局到该组
+                group_key = f"{start_idx:02d}-{end_idx:02d}"
+                self.layout_group_var.set(group_key)
+                self.on_layout_group_change()
 
             btn_first5 = tk.Button(
                 right_frame,
@@ -1070,9 +1129,10 @@ class WindowManagerGUI:
     
     def update_grid_display(self):
         """更新网格按钮显示"""
+        assignments = self.get_current_assignments()
         for (r, c), btn in self.grid_buttons.items():
-            if (r, c) in self.grid_assignments:
-                window = self.grid_assignments[(r, c)]
+            if (r, c) in assignments:
+                window = assignments[(r, c)]
                 btn.config(
                     text=f"🪟 位置 {r+1},{c+1}\n{window.title[:15]}...",
                     bg=COLORS['selected'],
@@ -1253,9 +1313,10 @@ class WindowManagerGUI:
     
     def on_grid_click(self, row: int, col: int):
         """网格按钮点击事件"""
-        if (row, col) in self.grid_assignments:
+        assignments = self.get_current_assignments()
+        if (row, col) in assignments:
             # 已有窗口，询问是否移除
-            window = self.grid_assignments[(row, col)]
+            window = assignments[(row, col)]
             if messagebox.askyesno("移除窗口", f"是否移除窗口 '{window.title}' 从位置 [{row+1},{col+1}]?"):
                 self.remove_window_assignment(window)
         else:
@@ -1300,20 +1361,21 @@ class WindowManagerGUI:
     
     def assign_window_to_position(self, window: WindowInfo, row: int, col: int):
         """分配窗口到位置"""
+        assignments = self.get_current_assignments()
         # 移除窗口的旧分配
         if window.assigned_position:
             old_pos = window.assigned_position
-            if old_pos in self.grid_assignments:
-                del self.grid_assignments[old_pos]
+            if old_pos in assignments:
+                del assignments[old_pos]
         
         # 移除位置的旧窗口
-        if (row, col) in self.grid_assignments:
-            old_window = self.grid_assignments[(row, col)]
+        if (row, col) in assignments:
+            old_window = assignments[(row, col)]
             old_window.assigned_position = None
         
         # 新分配
         window.assigned_position = (row, col)
-        self.grid_assignments[(row, col)] = window
+        assignments[(row, col)] = window
         
         # 更新显示
         self.update_grid_display()
@@ -1324,10 +1386,11 @@ class WindowManagerGUI:
     
     def remove_window_assignment(self, window: WindowInfo):
         """移除窗口分配"""
+        assignments = self.get_current_assignments()
         if window.assigned_position:
             pos = window.assigned_position
-            if pos in self.grid_assignments:
-                del self.grid_assignments[pos]
+            if pos in assignments:
+                del assignments[pos]
             window.assigned_position = None
             
             self.update_grid_display()
@@ -1335,8 +1398,9 @@ class WindowManagerGUI:
     
     def clear_assignments(self):
         """清空所有分配"""
-        if messagebox.askyesno("确认", "是否清空所有窗口分配?"):
-            self.grid_assignments.clear()
+        if messagebox.askyesno("确认", "是否清空当前布局组的窗口分配?"):
+            assignments = self.get_current_assignments()
+            assignments.clear()
             for window in self.windows:
                 window.assigned_position = None
             self.update_grid_display()
@@ -1344,7 +1408,7 @@ class WindowManagerGUI:
     
     def preview_layout(self):
         """预览布局"""
-        if not self.grid_assignments:
+        if not self.get_current_assignments():
             messagebox.showinfo("提示", "没有分配任何窗口")
             return
         
@@ -1353,7 +1417,7 @@ class WindowManagerGUI:
         
         # 显示预览信息
         preview_text = "布局预览:\n\n"
-        for (row, col), window in self.grid_assignments.items():
+        for (row, col), window in self.get_current_assignments().items():
             x, y, w, h = positions[(row, col)]
             preview_text += f"位置 [{row+1},{col+1}]: {window.title}\n"
             preview_text += f"  坐标: ({x}, {y}), 大小: {w}×{h}\n\n"
@@ -1416,14 +1480,14 @@ class WindowManagerGUI:
     
     def apply_layout(self):
         """应用布局"""
-        if not self.grid_assignments:
+        if not self.get_current_assignments():
             self.show_status_message("没有分配任何窗口")
             return
         
         positions = self.calculate_positions()
         success_count = 0
         
-        for (row, col), window in self.grid_assignments.items():
+        for (row, col), window in self.get_current_assignments().items():
             x, y, w, h = positions[(row, col)]
             
             try:
@@ -1439,11 +1503,12 @@ class WindowManagerGUI:
             except Exception as e:
                 print(f"移动窗口失败 {window.title}: {e}")
         
-        self.show_status_message(f"成功应用 {success_count}/{len(self.grid_assignments)} 个窗口的布局")
+        self.show_status_message(f"成功应用 {success_count}/{len(self.get_current_assignments())} 个窗口的布局")
     
     def save_config(self):
         """保存配置"""
-        if not self.grid_assignments:
+        # 允许保存即使当前组为空，以便记录多组配置
+        if not any(self.group_assignments.values()):
             self.show_status_message("没有配置可保存")
             return
         
@@ -1455,14 +1520,28 @@ class WindowManagerGUI:
             'use_workarea': self.use_workarea.get(),
             'h_gap': self.h_gap.get(),
             'v_gap': self.v_gap.get(),
-            'assignments': {}
+            # 新增：按组保存布局
+            'group_assignments': {}
         }
-        
-        for (row, col), window in self.grid_assignments.items():
-            config['assignments'][f"{row},{col}"] = {
+
+        for group_key, assignments in self.group_assignments.items():
+            group_data = {}
+            for (row, col), window in assignments.items():
+                group_data[f"{row},{col}"] = {
+                    'title': window.title,
+                    'class_name': window.class_name
+                }
+            config['group_assignments'][group_key] = group_data
+
+        # 兼容旧版：同时写当前组到旧字段 'assignments'
+        current_assignments = self.get_current_assignments()
+        legacy = {}
+        for (row, col), window in current_assignments.items():
+            legacy[f"{row},{col}"] = {
                 'title': window.title,
                 'class_name': window.class_name
             }
+        config['assignments'] = legacy
         
         try:
             os.makedirs("saving", exist_ok=True)
@@ -1499,21 +1578,41 @@ class WindowManagerGUI:
             # 更新网格
             self.update_grid()
             
-            # 尝试匹配窗口
-            assignments = config.get('assignments', {})
+            # 加载分组布局（新格式）或旧格式
             matched_count = 0
-            
-            for pos_str, window_info in assignments.items():
-                row, col = map(int, pos_str.split(','))
-                title = window_info['title']
-                class_name = window_info['class_name']
-                
-                # 查找匹配的窗口
-                for window in self.windows:
-                    if (window.title == title or window.class_name == class_name) and window.assigned_position is None:
-                        self.assign_window_to_position(window, row, col)
-                        matched_count += 1
-                        break
+            group_assignments_cfg = config.get('group_assignments')
+            if group_assignments_cfg:
+                # 先清空所有组
+                for g in self.layout_groups:
+                    self.group_assignments[g].clear()
+                # 逐组匹配
+                for g, assignments in group_assignments_cfg.items():
+                    if g not in self.layout_groups:
+                        continue
+                    for pos_str, window_info in assignments.items():
+                        row, col = map(int, pos_str.split(','))
+                        title = window_info.get('title')
+                        class_name = window_info.get('class_name')
+                        for window in self.windows:
+                            if (window.title == title or window.class_name == class_name):
+                                # 临时设置到该组（不改变当前组）
+                                self.group_assignments[g][(row, col)] = window
+                                matched_count += 1
+                                break
+                # 切回当前组显示
+                self.on_layout_group_change()
+            else:
+                # 旧格式：仅当前组
+                assignments = config.get('assignments', {})
+                self.get_current_assignments().clear()
+                for pos_str, window_info in assignments.items():
+                    row, col = map(int, pos_str.split(','))
+                    title = window_info.get('title')
+                    class_name = window_info.get('class_name')
+                    for window in self.windows:
+                        if (window.title == title or window.class_name == class_name):
+                            self.assign_window_to_position(window, row, col)
+                            matched_count += 1
             
             self.show_status_message(f"配置已加载，匹配到 {matched_count} 个窗口")
             if hasattr(self, 'window_status_text') and self.window_status_text:

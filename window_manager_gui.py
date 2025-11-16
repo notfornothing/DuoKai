@@ -181,6 +181,8 @@ class WindowManagerGUI:
         self.use_workarea = tk.BooleanVar(value=True)
         self.h_gap = tk.IntVar(value=10)  # 左右间隙
         self.v_gap = tk.IntVar(value=10)  # 上下间隙
+        # 置顶状态（默认开启，蓝色高亮）
+        self.topmost_var = tk.BooleanVar(value=True)
 
         # 数据
         self.windows: List[WindowInfo] = []
@@ -349,6 +351,30 @@ class WindowManagerGUI:
         )
         btn_sandbox.pack(side=tk.LEFT)
         self.add_hover_effect(btn_sandbox, COLORS['accent_orange'])
+        # 右上角置顶按钮
+        self.topmost_button = tk.Button(
+            toggle_frame,
+            text="📌 置顶:关",
+            command=self.toggle_topmost,
+            bg=COLORS['bg_accent'],
+            fg=COLORS['fg_primary'],
+            font=('Segoe UI', 10, 'bold'),
+            borderwidth=0,
+            padx=12,
+            pady=6
+        )
+        self.topmost_button.pack(side=tk.RIGHT)
+        # 根据置顶状态设置初始高亮与窗口属性
+        try:
+            self.root.attributes('-topmost', self.topmost_var.get())
+        except Exception:
+            pass
+        if self.topmost_var.get():
+            self.topmost_button.config(text="📌 置顶:开", bg=COLORS['accent_blue'])
+            self.add_hover_effect(self.topmost_button, COLORS['accent_blue'])
+        else:
+            self.topmost_button.config(text="📌 置顶:关", bg=COLORS['bg_accent'])
+            self.add_hover_effect(self.topmost_button, COLORS['bg_accent'])
         
         # 设置窗口管理界面
         self.setup_window_management_ui()
@@ -955,24 +981,34 @@ class WindowManagerGUI:
         self.sandbox_status_text.insert(tk.END, f"开始启动 {len(selected_boxes)} 个沙盒...\n\n")
         self.sandbox_status_text.update()
         
-        success_count = 0
+        # 先检测重复并汇总提示；如有已运行，本次操作不执行任何启动
+        duplicates = []
+        to_launch = []
         for box_id in selected_boxes:
             try:
-                # 启动前检测是否已有进程在该 Box 运行
                 running_count = self.is_box_running(box_id)
                 if running_count > 0:
-                    proceed = messagebox.askyesno(
-                        "确认启动",
-                        f"Box {box_id} 当前已有 {running_count} 个进程在运行。\n是否仍要启动？"
-                    )
-                    if not proceed:
-                        self.sandbox_status_text.insert(tk.END, f"⏭️ 已跳过 Box {box_id}（检测到正在运行）\n\n")
-                        self.sandbox_status_text.update()
-                        continue
+                    duplicates.append(box_id)
                 elif running_count == -1:
-                    # 无法检测时仅记录，不阻断
-                    self.sandbox_status_text.insert(tk.END, f"ℹ️ 未能检测 Box {box_id} 的运行状态，继续尝试启动\n")
-                    self.sandbox_status_text.update()
+                    to_launch.append(box_id)
+                else:
+                    to_launch.append(box_id)
+            except Exception:
+                to_launch.append(box_id)
+                continue
+
+        if duplicates:
+            # UI提示：本次点击不执行启动
+            dup_text = ", ".join(duplicates)
+            messagebox.showinfo("提示", f"以下沙盒已启动，已跳过：\n{dup_text}\n\n本次启动操作未执行，请先关闭或取消上述沙盒后重试。")
+            self.sandbox_status_text.insert(tk.END, "检测到已运行沙盒，本次操作已取消。\n")
+            self.sandbox_status_text.insert(tk.END, f"已运行：{dup_text}\n\n")
+            self.sandbox_status_text.update()
+            return
+
+        success_count = 0
+        for box_id in to_launch:
+            try:
                 # 构建完整的程序路径
                 full_program_path = os.path.join(self.sandbox_config.program_path, 
                                                self.sandbox_config.program_exe)
@@ -1004,12 +1040,10 @@ class WindowManagerGUI:
                     self.sandbox_status_text.insert(tk.END, f"✅ Box {box_id} 启动成功!\n\n")
                     success_count += 1
                 else:
-                    # 更准确的错误信息：优先 stderr，其次 stdout，最后返回码
                     stderr_msg = result.stderr.decode('utf-8', errors='ignore') if result.stderr else ""
                     stdout_msg = result.stdout.decode('utf-8', errors='ignore') if result.stdout else ""
                     error_msg = stderr_msg or stdout_msg or f"返回码 {rc}"
                     self.sandbox_status_text.insert(tk.END, f"❌ Box {box_id} 启动失败: {error_msg}\n\n")
-                
             except Exception as e:
                 self.sandbox_status_text.insert(tk.END, f"❌ Box {box_id} 启动异常: {str(e)}\n\n")
             
@@ -1020,9 +1054,20 @@ class WindowManagerGUI:
         self.sandbox_status_text.see(tk.END)
         
         if success_count > 0:
-            self.show_status_message("成功启动 {success_count} 个沙盒!")
+            self.show_status_message(f"成功启动 {success_count} 个沙盒!")
+
+    def toggle_topmost(self):
+        """切换窗口置顶状态"""
+        new_state = not self.topmost_var.get()
+        self.topmost_var.set(new_state)
+        try:
+            self.root.attributes('-topmost', new_state)
+        except Exception:
+            pass
+        if new_state:
+            self.topmost_button.config(text="📌 置顶:开", bg=COLORS['accent_blue'])
         else:
-            self.show_status_message("没有成功启动任何沙盒，请检查配置!")
+            self.topmost_button.config(text="📌 置顶:关", bg=COLORS['bg_accent'])
 
     def terminate_all_sandboxes(self):
         """一键关闭所有沙盒窗口(通过 Sandboxie Start.exe /terminate_all)"""

@@ -528,25 +528,103 @@ class WindowManagerGUI:
         box_select_frame = tk.Frame(box_frame, bg=COLORS['bg_secondary'])
         box_select_frame.pack(fill=tk.X, pady=(0, 15))
         
-        tk.Label(box_select_frame, text="选择要启动的Box (01-06):", 
+        tk.Label(box_select_frame, text="选择要启动的 Box (01-24):", 
                 bg=COLORS['bg_secondary'], fg=COLORS['fg_primary'], 
                 font=('Segoe UI', 10, 'bold')).pack(anchor=tk.W, pady=(0, 10))
-        
-        # 创建Box复选框
+
+        # 创建分组 Box 复选框（01-06、07-12、13-18、19-24），每组一行并带批量按钮
         self.box_vars = {}
-        box_checkboxes_frame = tk.Frame(box_select_frame, bg=COLORS['bg_secondary'])
-        box_checkboxes_frame.pack(fill=tk.X)
-        
-        for i in range(1, 7):
-            box_id = f"{i:02d}"
-            var = tk.BooleanVar(value=box_id in self.sandbox_config.enabled_boxes)
-            self.box_vars[box_id] = var
-            
-            checkbox = tk.Checkbutton(box_checkboxes_frame, text=f"Box {box_id}", 
-                                     variable=var, bg=COLORS['bg_secondary'],
-                                     fg=COLORS['fg_primary'], font=('Segoe UI', 10),
-                                     selectcolor=COLORS['bg_accent'])
-            checkbox.pack(side=tk.LEFT, padx=(0, 20))
+
+        def create_group_row(parent, start_idx: int, end_idx: int):
+            group_frame = tk.Frame(parent, bg=COLORS['bg_secondary'])
+            group_frame.pack(fill=tk.X, pady=(0, 8))
+
+            # 左侧：组标签 + 复选框们
+            left_frame = tk.Frame(group_frame, bg=COLORS['bg_secondary'])
+            left_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+            tk.Label(
+                left_frame,
+                text=f"组 {start_idx:02d}-{end_idx:02d}",
+                bg=COLORS['bg_secondary'],
+                fg=COLORS['fg_primary'],
+                font=('Segoe UI', 10, 'bold')
+            ).pack(side=tk.LEFT, padx=(0, 10))
+
+            group_ids = [f"{i:02d}" for i in range(start_idx, end_idx + 1)]
+            for box_id in group_ids:
+                var = tk.BooleanVar(value=box_id in getattr(self.sandbox_config, 'enabled_boxes', []))
+                self.box_vars[box_id] = var
+                cb = tk.Checkbutton(
+                    left_frame,
+                    text=f"Box {box_id}",
+                    variable=var,
+                    bg=COLORS['bg_secondary'],
+                    fg=COLORS['fg_primary'],
+                    font=('Segoe UI', 10),
+                    selectcolor=COLORS['bg_accent']
+                )
+                cb.pack(side=tk.LEFT, padx=(0, 14))
+
+            # 右侧：批量选择按钮（全选 / 全不选 / 只选前五个）
+            right_frame = tk.Frame(group_frame, bg=COLORS['bg_secondary'])
+            right_frame.pack(side=tk.RIGHT)
+
+            def apply_group_selection(ids: List[str], mode: str):
+                if mode == 'all':
+                    for bid in ids:
+                        self.box_vars[bid].set(True)
+                elif mode == 'none':
+                    for bid in ids:
+                        self.box_vars[bid].set(False)
+                elif mode == 'first5':
+                    for idx, bid in enumerate(ids):
+                        self.box_vars[bid].set(idx < 5)
+
+            btn_first5 = tk.Button(
+                right_frame,
+                text="只选前五个",
+                command=lambda ids=group_ids: apply_group_selection(ids, 'first5'),
+                bg=COLORS['accent_blue'],
+                fg=COLORS['fg_primary'],
+                font=('Segoe UI', 9),
+                borderwidth=0,
+                padx=10
+            )
+            btn_first5.pack(side=tk.RIGHT, padx=(5, 0))
+            self.add_hover_effect(btn_first5, COLORS['accent_blue'])
+
+            btn_none = tk.Button(
+                right_frame,
+                text="全不选",
+                command=lambda ids=group_ids: apply_group_selection(ids, 'none'),
+                bg=COLORS['accent_red'],
+                fg=COLORS['fg_primary'],
+                font=('Segoe UI', 9),
+                borderwidth=0,
+                padx=10
+            )
+            btn_none.pack(side=tk.RIGHT, padx=(5, 0))
+            self.add_hover_effect(btn_none, COLORS['accent_red'])
+
+            btn_all = tk.Button(
+                right_frame,
+                text="全选",
+                command=lambda ids=group_ids: apply_group_selection(ids, 'all'),
+                bg=COLORS['accent_green'],
+                fg=COLORS['fg_primary'],
+                font=('Segoe UI', 9),
+                borderwidth=0,
+                padx=10
+            )
+            btn_all.pack(side=tk.RIGHT, padx=(5, 0))
+            self.add_hover_effect(btn_all, COLORS['accent_green'])
+
+        # 组行：01-06、07-12、13-18、19-24
+        create_group_row(box_select_frame, 1, 6)
+        create_group_row(box_select_frame, 7, 12)
+        create_group_row(box_select_frame, 13, 18)
+        create_group_row(box_select_frame, 19, 24)
         
         # 快速选择按钮
         quick_select_frame = tk.Frame(box_frame, bg=COLORS['bg_secondary'])

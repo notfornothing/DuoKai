@@ -1,26 +1,31 @@
 @echo off
 setlocal
 
-REM 生成桌面启动脚本，使用本脚本所在目录的配置
-REM 本脚本放在仓库根目录下，双击运行即可在桌面生成启动脚本
-
+REM 纯 CMD 生成桌面启动脚本（带黑框输出）
 set "BASE_DIR=%~dp0"
 for /f "delims=" %%I in ("%BASE_DIR%.") do set "BASE_DIR=%%~fI"
 set "DESKTOP=%USERPROFILE%\Desktop"
-set "LAUNCH_BAT=%DESKTOP%\DuoKai-启动.bat"
+set "LAUNCH_BAT=%DESKTOP%\DuoKai-启动(黑框).bat"
 
 echo 正在生成桌面启动脚本: "%LAUNCH_BAT%"
 
->"%LAUNCH_BAT%" echo @echo off
->>"%LAUNCH_BAT%" echo setlocal
->>"%LAUNCH_BAT%" echo set "BASE_DIR=%BASE_DIR%"
->>"%LAUNCH_BAT%" echo cd /d "%%BASE_DIR%%"
->>"%LAUNCH_BAT%" echo rem 优先使用 py，其次使用 python
->>"%LAUNCH_BAT%" echo set "PY_CMD="
->>"%LAUNCH_BAT%" echo where py ^>nul 2^>^&1 ^&^& set "PY_CMD=py"
->>"%LAUNCH_BAT%" echo if "%%PY_CMD%%"=="" set "PY_CMD=python"
->>"%LAUNCH_BAT%" echo "%%PY_CMD%%" "%BASE_DIR%\window_manager_gui.py"
->>"%LAUNCH_BAT%" echo exit /b 0
+REM 用一次性重定向写入所有行，避免中文与特殊符号解析问题
+(
+  echo @echo off
+  echo chcp 65001^>nul
+  echo setlocal
+  echo cd /d "%BASE_DIR%"
+  echo set "PY_CMD="
+  echo where py ^>nul 2^>^&1 ^&^& set "PY_CMD=py"
+  echo if "%%PY_CMD%%"=="" set "PY_CMD=python"
+  echo "%%PY_CMD%%" -u "%BASE_DIR%\window_manager_gui.py"
+  echo echo.
+  echo pause
+) >"%LAUNCH_BAT%"
 
-echo ✅ 生成完成！请在桌面双击 "DuoKai-启动.bat" 启动程序。
+if exist "%LAUNCH_BAT%" (
+  echo 生成完成。请在桌面双击 "DuoKai-启动(黑框).bat" 运行并查看输出。
+) else (
+  echo 生成失败，请检查权限或路径是否存在。
+)
 exit /b 0

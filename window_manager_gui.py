@@ -195,8 +195,8 @@ class WindowManagerGUI:
         
         # 沙盒配置
         self.sandbox_config = SandboxConfig()
-        self.sandbox_config_file = os.path.join("saving", "multiSandbox.json")
-        self.window_config_file = os.path.join("saving", "multiWindows.json")
+        self.sandbox_config_file = os.path.join("config", "multiSandbox.json")
+        self.window_config_file = os.path.join("config", "multiWindows.json")
         
         # GUI 组件
         self.window_listbox = None
@@ -1170,7 +1170,7 @@ class WindowManagerGUI:
             self.sandbox_config.enabled_boxes = self.get_selected_boxes()
             
             # 保存到文件
-            os.makedirs("saving", exist_ok=True)
+            os.makedirs("config", exist_ok=True)
             config_data = {
                 "sandbox": {
                     "sandbox_path": self.sandbox_config.sandbox_path,
@@ -1785,7 +1785,7 @@ class WindowManagerGUI:
         config['assignments'] = legacy
         
         try:
-            os.makedirs("saving", exist_ok=True)
+            os.makedirs("config", exist_ok=True)
             with open(self.window_config_file, 'w', encoding='utf-8') as f:
                 json.dump(config, f, ensure_ascii=False, indent=2)
             self.show_status_message("窗口配置已保存")

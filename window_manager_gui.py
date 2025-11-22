@@ -16,6 +16,7 @@ import sys
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
 import uuid
+import time
 
 def is_admin():
     """检查是否以管理员身份运行"""
@@ -156,6 +157,9 @@ class SandboxConfig:
     box_prefix: str = "01"
     box_count: int = 6
     enabled_boxes: List[str] = None
+    apply_low_usage: bool = True
+    process_priority: str = "below_normal"
+    cpu_affinity_mode: str = "single_core"
     
     def __post_init__(self):
         if self.enabled_boxes is None:
@@ -582,6 +586,37 @@ class WindowManagerGUI:
         self.window_status_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.window_status_text.config(yscrollcommand=window_status_scrollbar.set)
         window_status_scrollbar.config(command=self.window_status_text.yview)
+        
+        # 资源监视区域
+        self.resource_frame = tk.LabelFrame(
+            self.window_tab,
+            text="📈 资源监视",
+            bg=COLORS['bg_secondary'],
+            fg=COLORS['fg_primary'],
+            font=('Segoe UI', 11, 'bold'),
+            padx=10,
+            pady=10
+        )
+        self.resource_frame.pack(fill=tk.BOTH, expand=False, pady=(10, 10))
+        self.resource_text = tk.Text(
+            self.resource_frame,
+            height=8,
+            bg=COLORS['bg_accent'],
+            fg=COLORS['fg_primary'],
+            font=('Consolas', 9),
+            borderwidth=0,
+            wrap=tk.NONE
+        )
+        res_scroll = tk.Scrollbar(self.resource_frame, orient=tk.VERTICAL)
+        res_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.resource_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.resource_text.config(yscrollcommand=res_scroll.set)
+        res_scroll.config(command=self.resource_text.yview)
+        
+        # 初始化采样缓存
+        self._pid_samples = {}
+        self._pid_usage = {}
+        self.start_resource_monitor()
     
     def setup_sandbox_ui(self):
         """设置沙盒多开界面"""
@@ -1233,6 +1268,106 @@ class WindowManagerGUI:
         
         button.bind("<Enter>", on_enter)
         button.bind("<Leave>", on_leave)
+    
+    # 资源监视实现
+    def _filetime_to_seconds(self, ft):
+        return (ft.dwHighDateTime << 32 | ft.dwLowDateTime) / 10_000_000.0
+    
+    def _get_process_usage(self, pid: int) -> Tuple[Optional[float], Optional[float]]:
+        try:
+            PROCESS_QUERY_INFORMATION = 0x0400
+            PROCESS_VM_READ = 0x0010
+            h = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, False, pid)
+            if not h:
+                return None, None
+            # CPU times
+            creation = wintypes.FILETIME()
+            exit = wintypes.FILETIME()
+            kernel = wintypes.FILETIME()
+            user = wintypes.FILETIME()
+            ctypes.windll.kernel32.GetProcessTimes(h, ctypes.byref(creation), ctypes.byref(exit), ctypes.byref(kernel), ctypes.byref(user))
+            ku = self._filetime_to_seconds(kernel) + self._filetime_to_seconds(user)
+            now = time.time()
+            cpu_percent = None
+            last = self._pid_samples.get(pid)
+            if last:
+                delta_cpu = max(0.0, ku - last['ku'])
+                delta_time = max(1e-6, now - last['t'])
+                cpu_count = os.cpu_count() or 1
+                cpu_percent = min(100.0 * delta_cpu / delta_time / cpu_count, 100.0)
+            self._pid_samples[pid] = {'ku': ku, 't': now}
+            
+            # Memory
+            class PROCESS_MEMORY_COUNTERS_EX(ctypes.Structure):
+                _fields_ = [
+                    ("cb", wintypes.DWORD),
+                    ("PageFaultCount", wintypes.DWORD),
+                    ("PeakWorkingSetSize", ctypes.c_size_t),
+                    ("WorkingSetSize", ctypes.c_size_t),
+                    ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                    ("PagefileUsage", ctypes.c_size_t),
+                    ("PeakPagefileUsage", ctypes.c_size_t),
+                    ("PrivateUsage", ctypes.c_size_t),
+                ]
+            counters = PROCESS_MEMORY_COUNTERS_EX()
+            counters.cb = ctypes.sizeof(counters)
+            ctypes.windll.psapi.GetProcessMemoryInfo(h, ctypes.byref(counters), counters.cb)
+            mem_mb = counters.WorkingSetSize / (1024 * 1024)
+            ctypes.windll.kernel32.CloseHandle(h)
+            return cpu_percent, mem_mb
+        except Exception:
+            return None, None
+    
+    def start_resource_monitor(self):
+        try:
+            self.update_resource_monitor()
+        except Exception:
+            pass
+        self.root.after(1500, self.start_resource_monitor)
+    
+    def update_resource_monitor(self):
+        try:
+            # 收集当前窗口的 PID 与标题
+            pid_to_title = {}
+            pids = []
+            for w in self.windows:
+                pid = wintypes.DWORD()
+                windll.user32.GetWindowThreadProcessId(w.hwnd, ctypes.byref(pid))
+                p = pid.value
+                if p and p not in pid_to_title:
+                    pid_to_title[p] = w.title
+                    pids.append(p)
+            # 计算使用率
+            lines = []
+            total_cpu = 0.0
+            total_mem = 0.0
+            new_usage = {}
+            for p in pids:
+                cpu, mem = self._get_process_usage(p)
+                if mem is not None:
+                    total_mem += mem
+                if cpu is not None:
+                    total_cpu += cpu
+                title = pid_to_title.get(p, str(p))
+                cpu_str = f"{cpu:.1f}%" if cpu is not None else "-"
+                mem_str = f"{mem:.1f} MB" if mem is not None else "-"
+                lines.append(f"PID {p}  CPU {cpu_str}  MEM {mem_str}  {title[:40]}")
+                if cpu is not None and mem is not None:
+                    new_usage[p] = (cpu, mem)
+            # 输出到监视区
+            self.resource_text.delete("1.0", tk.END)
+            self.resource_text.insert(tk.END, f"监视窗口数量: {len(self.windows)}  进程数: {len(pids)}\n")
+            self.resource_text.insert(tk.END, f"总CPU(归一化): {total_cpu:.1f}%   总内存: {total_mem:.1f} MB\n\n")
+            for ln in lines[:50]:
+                self.resource_text.insert(tk.END, ln + "\n")
+            self.resource_text.see(tk.END)
+            self._pid_usage = new_usage
+            self.update_grid_display()
+        except Exception:
+            pass
 
     # （已移除）虚拟桌面移动相关功能
     
@@ -1346,8 +1481,22 @@ class WindowManagerGUI:
         for (r, c), btn in self.grid_buttons.items():
             if (r, c) in assignments:
                 window = assignments[(r, c)]
+                pid = wintypes.DWORD()
+                try:
+                    windll.user32.GetWindowThreadProcessId(window.hwnd, ctypes.byref(pid))
+                    usage = self._pid_usage.get(pid.value)
+                except Exception:
+                    usage = None
+                title = window.title[:25] + "..." if len(window.title) > 25 else window.title
+                if usage:
+                    cpu, mem = usage
+                    cpu_str = f"CPU {cpu:.0f}%"
+                    mem_str = f"MEM {mem:.0f}MB"
+                else:
+                    cpu_str = "CPU -"
+                    mem_str = "MEM -"
                 btn.config(
-                    text=f"🪟 位置 {r+1},{c+1}\n{window.title[:15]}...",
+                    text=f"🪟 位置 {r+1},{c+1}\n{title}\n-----;\n{cpu_str}\n{mem_str}",
                     bg=COLORS['selected'],
                     fg=COLORS['fg_primary'],
                     font=('Segoe UI', 9, 'bold')

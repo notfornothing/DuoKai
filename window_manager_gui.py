@@ -617,6 +617,7 @@ class WindowManagerGUI:
         self._pid_samples = {}
         self._pid_usage = {}
         self.start_resource_monitor()
+
     
     def setup_sandbox_ui(self):
         """设置沙盒多开界面"""
@@ -1107,6 +1108,20 @@ class WindowManagerGUI:
     def terminate_all_sandboxes(self):
         """一键关闭所有沙盒窗口(通过 Sandboxie Start.exe /terminate_all)"""
         try:
+            # 列出正在运行的 Box 以供确认
+            running = []
+            for i in range(1, 31):
+                bid = f"{i:02d}"
+                cnt = self.is_box_running(bid)
+                if cnt and cnt > 0:
+                    running.append(bid)
+            if running:
+                text = ", ".join(running)
+                if not messagebox.askyesno("确认关闭", f"将关闭以下 Box: {text}\n是否继续？"):
+                    return
+            else:
+                if not messagebox.askyesno("确认关闭", "未检测到正在运行的 Box，仍要发送关闭所有沙盒的请求吗？"):
+                    return
             self.sandbox_config.sandbox_path = self.sandbox_path_var.get()
             cmd = [self.sandbox_config.sandbox_path, "/terminate_all"]
             if hasattr(self, 'sandbox_status_text') and self.sandbox_status_text:
@@ -1141,6 +1156,9 @@ class WindowManagerGUI:
         boxes = self.get_selected_boxes()
         if not boxes:
             messagebox.showinfo("提示", "请先在上方勾选要关闭的 Box")
+            return
+        text = ", ".join(boxes)
+        if not messagebox.askyesno("确认关闭", f"将关闭选中 Box: {text}\n是否继续？"):
             return
 
         start_path = self.sandbox_path_var.get()
@@ -1369,6 +1387,7 @@ class WindowManagerGUI:
         except Exception:
             pass
 
+
     # （已移除）虚拟桌面移动相关功能
     
     def get_windows(self) -> List[WindowInfo]:
@@ -1496,7 +1515,7 @@ class WindowManagerGUI:
                     cpu_str = "CPU -"
                     mem_str = "MEM -"
                 btn.config(
-                    text=f"🪟 位置 {r+1},{c+1}\n{title}\n-----;\n{cpu_str}\n{mem_str}",
+                    text=f"🪟 位置 {r+1},{c+1}\n{title}\n-----\n{cpu_str}\n{mem_str}",
                     bg=COLORS['selected'],
                     fg=COLORS['fg_primary'],
                     font=('Segoe UI', 9, 'bold')
